@@ -32,10 +32,10 @@
 
         /* ── Reset ──────────────────────────────────────────────────────── */
         *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; cursor: none !important; }
-        html, body { width: 100%; height: 100%; overflow: hidden; background: #06080f; font-family: var(--font-ui); -webkit-font-smoothing: antialiased; cursor: none; }
+        html, body { width: 100%; height: 100%; overflow: hidden; background: #06080f; font-family: var(--font-ui); -webkit-font-smoothing: antialiased; cursor: none; user-select: none; -webkit-user-select: none; }
 
         /* ── Layout ─────────────────────────────────────────────────────── */
-        #game-container { position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; cursor: none; }
+        #game-container { position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; cursor: none; user-select: none; -webkit-user-select: none; }
         #game-container::after { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.35) 100%); pointer-events: none; z-index: 1; }
         canvas { display: block; width: 100vw; height: 100vh; object-fit: contain; image-rendering: pixelated; pointer-events: none; cursor: none; }
         #ui-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: auto; z-index: 10; cursor: none; }
@@ -75,12 +75,22 @@
         /* ── HUD ────────────────────────────────────────────────────────── */
         .hud-overlay { pointer-events: none; }
         .hud-bar { position: absolute; top: 16px; left: 16px; right: 16px; display: flex; align-items: flex-start; justify-content: space-between; }
-        .hud-lives { display: flex; gap: 6px; padding: 8px 12px; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: var(--radius-sm); backdrop-filter: blur(8px); }
-        .life-icon { width: 14px; height: 14px; background: var(--color-gold); border-radius: 3px; box-shadow: var(--glow-gold); animation: lifePulse 2s ease-in-out infinite; }
-        .life-icon:nth-child(2) { animation-delay: 0.3s; }
-        .life-icon:nth-child(3) { animation-delay: 0.6s; }
-        @keyframes lifePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+        .hud-vitals { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: var(--radius-sm); backdrop-filter: blur(8px); min-width: 160px; }
+        .vital-bar { display: flex; align-items: center; gap: 8px; }
+        .vital-label { font-family: var(--font-mono); font-size: 0.6rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; min-width: 36px; text-align: right; }
+        .vital-label.health { color: var(--color-danger); }
+        .vital-label.armor { color: var(--color-primary); }
+        .vital-track { flex: 1; height: 8px; background: rgba(255, 255, 255, 0.08); border-radius: 4px; overflow: hidden; }
+        .vital-fill { height: 100%; border-radius: 4px; transition: width 0.3s ease; }
+        .vital-fill.health { background: linear-gradient(90deg, #ff4d4d, #ff6b6b); box-shadow: 0 0 8px rgba(255, 77, 77, 0.4); }
+        .vital-fill.armor { background: linear-gradient(90deg, #3a9bff, #4db8ff); box-shadow: 0 0 8px rgba(77, 184, 255, 0.4); }
+        .vital-value { font-family: var(--font-mono); font-size: 0.65rem; font-weight: 600; min-width: 30px; text-align: left; }
+        .vital-value.health { color: var(--color-danger); }
+        .vital-value.armor { color: var(--color-primary); }
+        .hud-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
         .hud-score-panel { text-align: right; padding: 8px 14px; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: var(--radius-sm); backdrop-filter: blur(8px); }
+        .hud-settings-btn { pointer-events: auto; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: var(--radius-sm); backdrop-filter: blur(8px); color: var(--color-text-muted); font-size: 1rem; cursor: none; transition: all 0.2s ease; }
+        .hud-settings-btn:hover { color: var(--color-primary); border-color: rgba(77, 184, 255, 0.3); background: rgba(77, 184, 255, 0.08); }
         .hud-score-label { font-size: 0.55rem; font-weight: 600; letter-spacing: 0.2em; color: var(--color-text-muted); text-transform: uppercase; }
         .hud-score { font-family: var(--font-mono); font-size: clamp(1rem, 2.5vw, 1.4rem); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--color-success); text-shadow: 0 0 12px rgba(80, 250, 123, 0.3); line-height: 1.2; }
         .hud-high-score { font-family: var(--font-mono); font-size: 0.6rem; font-variant-numeric: tabular-nums; color: var(--color-gold); opacity: 0.6; margin-top: 2px; }
@@ -522,7 +532,7 @@
                 '</div></div></div>';
         }
 
-        function render(state, score, lives, high, ammo, maxAmmo, reloading) {
+        function render(state, score, lives, high, ammo, maxAmmo, reloading, health, maxHealth, armor, maxArmor) {
             var html = '';
             if (showingSettings) {
                 html = renderSettingsPanel();
@@ -547,18 +557,24 @@
                     '<div class="keys"><kbd>R</kbd></div><span class="control-label">Reload</span>' +
                     '</div></div></div></div>';
             } else if (state === 1) {
-                var icons = '';
-                for (var i = 0; i < lives; i++) icons += '<div class="life-icon"></div>';
+                var healthPct = maxHealth > 0 ? Math.round(health / maxHealth * 100) : 0;
+                var armorPct = maxArmor > 0 ? Math.round(armor / maxArmor * 100) : 0;
                 var ammoClass = reloading ? 'ammo-reloading' : (ammo <= 5 ? 'ammo-low' : '');
                 var ammoText = reloading ? 'RELOADING...' : ammo + ' / ' + maxAmmo;
                 html = '<div class="screen hud-overlay">' +
                     '<div class="hud-bar">' +
-                    '<div class="hud-lives"><div id="hud-lives-inner">' + icons + '</div></div>' +
+                    '<div class="hud-vitals">' +
+                    '<div class="vital-bar"><span class="vital-label health">HP</span><div class="vital-track"><div class="vital-fill health" id="hud-health-fill" style="width:' + healthPct + '%"></div></div><span class="vital-value health" id="hud-health-val">' + health + '</span></div>' +
+                    '<div class="vital-bar"><span class="vital-label armor">ARM</span><div class="vital-track"><div class="vital-fill armor" id="hud-armor-fill" style="width:' + armorPct + '%"></div></div><span class="vital-value armor" id="hud-armor-val">' + armor + '</span></div>' +
+                    '</div>' +
                     '<div class="hud-center"><div class="hud-ammo ' + ammoClass + '" id="hud-ammo-wrap"><div class="ammo-icon">&#x2B21;</div><div class="ammo-text" id="hud-ammo-text">' + ammoText + '</div></div></div>' +
+                    '<div class="hud-right">' +
                     '<div class="hud-score-panel">' +
                     '<div class="hud-score-label">Score</div>' +
                     '<div class="hud-score" id="hud-score-val">' + score + '</div>' +
                     '<div class="hud-high-score" id="hud-high-val" style="' + (high > 0 ? '' : 'display:none') + '">HI ' + high + '</div>' +
+                    '</div>' +
+                    '<div class="hud-settings-btn" id="hud-settings-btn" title="Settings">&#9881;</div>' +
                     '</div></div></div>';
             } else if (state === 3) {
                 html = '<div class="screen pause-screen">' +
@@ -597,6 +613,18 @@
                 });
             }
 
+            // Settings gear on HUD (during gameplay)
+            var hudGear = document.getElementById('hud-settings-btn');
+            if (hudGear) {
+                hudGear.addEventListener('mousedown', function(e) {
+                    e.stopPropagation();
+                    callWasm('pause_game');
+                    showingSettings = true;
+                    settingsOrigin = 'gameplay';
+                    rerender();
+                });
+            }
+
             // Pause screen buttons
             var resumeBtn = document.getElementById('resume-btn');
             if (resumeBtn) {
@@ -621,6 +649,7 @@
                 closeBtn.addEventListener('mousedown', function(e) {
                     e.stopPropagation();
                     showingSettings = false;
+                    if (settingsOrigin === 'gameplay') callWasm('resume_game');
                     rerender();
                 });
             }
@@ -727,6 +756,9 @@
             else if (state === 3) callWasm('resume_game');
         });
 
+        // Prevent double-click from selecting text or triggering browser defaults
+        overlay.addEventListener('dblclick', function(e) { e.preventDefault(); });
+
         // ── Escape key handler ───────────────────────────────────────────
         document.addEventListener('keydown', function(e) {
             // Resume AudioContext on any key press (browser autoplay policy)
@@ -735,6 +767,7 @@
                 e.preventDefault();
                 if (showingSettings) {
                     showingSettings = false;
+                    if (settingsOrigin === 'gameplay') callWasm('resume_game');
                     rerender();
                     return;
                 }
@@ -754,9 +787,13 @@
             crosshair.style.top = e.clientY + 'px';
         });
 
+        // Disable browser context menu on right-click / double-click
+        document.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+
         // ── Poll loop ────────────────────────────────────────────────────
         var prevState = -1;
         var prevScore = -1, prevLives = -1, prevHigh = -1, prevAmmo = -1, prevMaxAmmo = -1, prevReloading = -1;
+        var prevHealth = -1, prevMaxHealth = -1, prevArmor = -1, prevMaxArmor = -1;
         var settingsRendered = false; // track whether settings panel is already in the DOM
 
         function rerender() {
@@ -766,7 +803,7 @@
             poll();
         }
 
-        function updateHud(score, lives, high, ammo, maxAmmo, reloading) {
+        function updateHud(score, lives, high, ammo, maxAmmo, reloading, health, maxHealth, armor, maxArmor) {
             // Targeted DOM updates — no innerHTML replacement, no flicker
             var scoreEl = document.getElementById('hud-score-val');
             if (scoreEl && score !== prevScore) { scoreEl.textContent = score; prevScore = score; }
@@ -774,15 +811,30 @@
             var highEl = document.getElementById('hud-high-val');
             if (highEl && high !== prevHigh) { highEl.textContent = 'HI ' + high; highEl.style.display = high > 0 ? '' : 'none'; prevHigh = high; }
 
-            // Lives: only rebuild if count changed
-            if (lives !== prevLives) {
-                var livesEl = document.getElementById('hud-lives-inner');
-                if (livesEl) {
-                    var icons = '';
-                    for (var i = 0; i < lives; i++) icons += '<div class="life-icon"></div>';
-                    livesEl.innerHTML = icons;
+            // Health bar
+            if (health !== prevHealth || maxHealth !== prevMaxHealth) {
+                var healthFill = document.getElementById('hud-health-fill');
+                var healthVal = document.getElementById('hud-health-val');
+                if (healthFill && healthVal) {
+                    var pct = maxHealth > 0 ? Math.round(health / maxHealth * 100) : 0;
+                    healthFill.style.width = pct + '%';
+                    healthVal.textContent = health;
                 }
-                prevLives = lives;
+                prevHealth = health;
+                prevMaxHealth = maxHealth;
+            }
+
+            // Armor bar
+            if (armor !== prevArmor || maxArmor !== prevMaxArmor) {
+                var armorFill = document.getElementById('hud-armor-fill');
+                var armorVal = document.getElementById('hud-armor-val');
+                if (armorFill && armorVal) {
+                    var pct = maxArmor > 0 ? Math.round(armor / maxArmor * 100) : 0;
+                    armorFill.style.width = pct + '%';
+                    armorVal.textContent = armor;
+                }
+                prevArmor = armor;
+                prevMaxArmor = maxArmor;
             }
 
             // Ammo
@@ -853,11 +905,15 @@
             var ammo = callWasm('get_ammo', 30);
             var maxAmmo = callWasm('get_max_ammo', 30);
             var reloading = callWasm('get_reloading', false);
+            var health = callWasm('get_health', 100);
+            var maxHealth = callWasm('get_max_health', 100);
+            var armor = callWasm('get_armor', 50);
+            var maxArmor = callWasm('get_max_armor', 50);
 
             // Settings panel: render once when opened, then leave it alone
             if (showingSettings) {
                 if (!settingsRendered) {
-                    render(state, score, lives, high, ammo, maxAmmo, reloading);
+                    render(state, score, lives, high, ammo, maxAmmo, reloading, health, maxHealth, armor, maxArmor);
                     settingsRendered = true;
                 }
                 return;
@@ -865,10 +921,11 @@
 
             // Full re-render only on state transitions
             if (state !== prevState) {
-                render(state, score, lives, high, ammo, maxAmmo, reloading);
+                render(state, score, lives, high, ammo, maxAmmo, reloading, health, maxHealth, armor, maxArmor);
                 prevState = state;
                 prevScore = score; prevLives = lives; prevHigh = high;
                 prevAmmo = ammo; prevMaxAmmo = maxAmmo; prevReloading = reloading;
+                prevHealth = health; prevMaxHealth = maxHealth; prevArmor = armor; prevMaxArmor = maxArmor;
 
                 // Clear kill feed on state transitions
                 killFeedMessages = [];
@@ -877,7 +934,7 @@
                 if (killFeedEl) killFeedEl.innerHTML = '';
             } else if (state === 1) {
                 // Gameplay steady state: targeted DOM updates only — no flicker
-                updateHud(score, lives, high, ammo, maxAmmo, reloading);
+                updateHud(score, lives, high, ammo, maxAmmo, reloading, health, maxHealth, armor, maxArmor);
             }
 
             // Update kill feed during gameplay

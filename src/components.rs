@@ -29,6 +29,10 @@ pub struct Player {
     pub reloading: bool,
     pub reload_timer: f32,
     pub footstep_timer: f32,
+    pub health: i32,
+    pub max_health: i32,
+    pub armor: i32,
+    pub max_armor: i32,
 }
 
 /// Enemy type determines base behavior and stats.

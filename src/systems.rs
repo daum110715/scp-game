@@ -383,10 +383,31 @@ fn run_collision_detection(world: &mut World) {
 
         if ev.hit_player {
             crate::play_sound_js("hurt");
-            let lives = world.get_resource_mut::<LivesRes>().unwrap();
-            lives.lives -= 1;
 
-            if lives.lives <= 0 {
+            // Armor absorbs damage first, remainder goes to health
+            let mut remaining_damage = crate::HIT_DAMAGE;
+            let entities: Vec<_> = QuerySingle::<Player>::new(world)
+                .map(|q| q.iter().map(|(e, _)| e).collect())
+                .unwrap_or_default();
+            for e in &entities {
+                if let Some(p) = world.get_component_mut::<Player>(*e) {
+                    if p.armor > 0 {
+                        let absorbed = p.armor.min(remaining_damage);
+                        p.armor -= absorbed;
+                        remaining_damage -= absorbed;
+                    }
+                    if remaining_damage > 0 {
+                        p.health -= remaining_damage;
+                    }
+                }
+            }
+
+            // Check if player died
+            let player_alive = QuerySingle::<Player>::new(world)
+                .and_then(|q| q.iter().next().map(|(_, p)| p.health > 0))
+                .unwrap_or(false);
+
+            if !player_alive {
                 let pos = QuerySingle::<Player>::new(world)
                     .and_then(|q| q.iter().next().map(|(e, _)| e))
                     .and_then(|e| world.get_component::<Transform2D>(e))
@@ -396,9 +417,6 @@ fn run_collision_detection(world: &mut World) {
                 world.get_resource_mut::<GameStateRes>().unwrap().state = GameState::GameOver;
                 world.get_resource_mut::<GameStateRes>().unwrap().game_over_timer = 0.0;
             } else {
-                let entities: Vec<_> = QuerySingle::<Player>::new(world)
-                    .map(|q| q.iter().map(|(e, _)| e).collect())
-                    .unwrap_or_default();
                 for e in entities {
                     if let Some(p) = world.get_component_mut::<Player>(e) {
                         p.invincible = INVINCIBLE_TIME;
@@ -601,10 +619,62 @@ pub fn player_shoot_system(world: &mut World, _dt: f32) {
     if bullet_count >= MAX_BULLETS { return; }
 
     // Fire bullet toward aim direction
-    let bvx = aim_angle.cos() * BULLET_SPEED;
-    let bvy = aim_angle.sin() * BULLET_SPEED;
-    let bx = px + PLAYER_SIZE * 0.5 + aim_angle.cos() * PLAYER_SIZE * 0.6;
-    let by = py + PLAYER_SIZE * 0.5 + aim_angle.sin() * PLAYER_SIZE * 0.6;
+    let mut final_angle = aim_angle;
+
+    // Aim assist: if crosshair is near an enemy's edge, nudge trajectory toward center
+    let aim_assist = world.get_resource::<SettingsRes>().map(|s| s.aim_assist).unwrap_or(false);
+    if aim_assist {
+        let player_cx = px + PLAYER_SIZE * 0.5;
+        let player_cy = py + PLAYER_SIZE * 0.5;
+        let aim_range = 300.0; // how far to check along the aim line
+        let aim_x = player_cx + aim_angle.cos() * aim_range;
+        let aim_y = player_cy + aim_angle.sin() * aim_range;
+
+        let mut best_enemy: Option<(f32, f32, f32, f32)> = None; // (center_x, center_y, size, dist_to_edge)
+        let assist_inner = 15.0;
+        let assist_outer = 20.0;
+
+        if let Some(q) = QuerySingle::<Enemy>::new(world) {
+            for (_e, enemy) in q.iter() {
+                if !enemy.alive { continue; }
+                if let Some(et) = world.get_component::<Transform2D>(_e) {
+                    let ex = et.position.x;
+                    let ey = et.position.y;
+                    let es = enemy.size;
+
+                    // Closest point on enemy AABB to the aim line point
+                    let closest_x = aim_x.max(ex).min(ex + es);
+                    let closest_y = aim_y.max(ey).min(ey + es);
+                    let dx = aim_x - closest_x;
+                    let dy = aim_y - closest_y;
+                    let dist = (dx * dx + dy * dy).sqrt();
+
+                    // Check if crosshair is in the assist ring (outside edge, within range)
+                    if dist <= assist_outer {
+                        // Distance from crosshair to enemy center
+                        let to_center = ((aim_x - (ex + es * 0.5)).powi(2)
+                            + (aim_y - (ey + es * 0.5)).powi(2)).sqrt();
+                        match best_enemy {
+                            Some((_, _, _, best_dist)) if dist >= best_dist => {}
+                            _ => best_enemy = Some((ex + es * 0.5, ey + es * 0.5, es, dist)),
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some((ecx, ecy, _es, dist)) = best_enemy {
+            // Blend factor: 5% at outer edge, 10% at inner edge
+            let t = 0.05 + 0.05 * ((assist_outer - dist) / (assist_outer - assist_inner)).clamp(0.0, 1.0);
+            let to_enemy = (ecy - player_cy).atan2(ecx - player_cx);
+            final_angle = aim_angle + (to_enemy - aim_angle) * t;
+        }
+    }
+
+    let bvx = final_angle.cos() * BULLET_SPEED;
+    let bvy = final_angle.sin() * BULLET_SPEED;
+    let bx = px + PLAYER_SIZE * 0.5 + final_angle.cos() * PLAYER_SIZE * 0.6;
+    let by = py + PLAYER_SIZE * 0.5 + final_angle.sin() * PLAYER_SIZE * 0.6;
 
     world.spawn()
         .with(Bullet { x: bx, y: by, vx: bvx, vy: bvy, alive: true, is_player: true })

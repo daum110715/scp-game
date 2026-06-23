@@ -44,6 +44,9 @@ pub(crate) const ENEMY_BULLET_SPEED: f32 = 620.0;
 pub(crate) const SHOOT_INTERVAL: f32 = 0.22;
 pub(crate) const MAX_LIVES: i32 = 3;
 pub(crate) const INVINCIBLE_TIME: f32 = 2.0;
+pub(crate) const MAX_HEALTH: i32 = 100;
+pub(crate) const MAX_ARMOR: i32 = 50;
+pub(crate) const HIT_DAMAGE: i32 = 10;
 
 // Ammo and reload (player)
 pub(crate) const MAX_AMMO: i32 = 30;
@@ -138,19 +141,11 @@ fn generate_map() -> MapRes {
         };
 
         // Shape selection
-        let shape = if h > 80.0 {
-            // Tall obstacles are always rectangles for stability
-            ObstacleShape::Rectangle
-        } else {
-            let r = rand();
-            if r < 0.4 { ObstacleShape::Square }
-            else if r < 0.8 { ObstacleShape::Rectangle }
-            else { ObstacleShape::Triangle }
-        };
+        let shape = if rand() < 0.45 { ObstacleShape::Square } else { ObstacleShape::Rectangle };
 
-        // Cool gray with slight blue tint
-        let base = rand_range(0.22, 0.42);
-        let color = (base, base + rand_range(0.0, 0.02), base + rand_range(0.02, 0.06));
+        // White with slight variation
+        let v = rand_range(0.75, 1.0);
+        let color = (v, v, v);
 
         let y = GROUND_Y - h;
 
@@ -191,6 +186,10 @@ fn init_world(world: &mut World) {
             reloading: false,
             reload_timer: 0.0,
             footstep_timer: 0.0,
+            health: MAX_HEALTH,
+            max_health: MAX_HEALTH,
+            armor: MAX_ARMOR,
+            max_armor: MAX_ARMOR,
         })
         .with(Transform2D::new(Vec2::new(100.0, GROUND_Y - PLAYER_SIZE)))
         .with(Velocity { x: 0.0, y: 0.0, gravity_scale: 1.0 })
@@ -469,10 +468,13 @@ impl ScpGame {
 
             match obs.shape {
                 ObstacleShape::Square | ObstacleShape::Rectangle => {
-                    // Subtle highlight on top edge
-                    self.shapes.set_color(Color::new(
-                        (r + 0.08).min(1.0), (g + 0.08).min(1.0), (b + 0.08).min(1.0), 0.6,
-                    ));
+                    // Faint white glow
+                    let glow = 5.0;
+                    self.shapes.set_color(Color::new(r, g, b, 0.10));
+                    self.shapes.draw_rounded_rect(obs.x - glow, obs.y - glow, obs.w + glow * 2.0, obs.h + glow * 2.0, 5.0);
+
+                    // Subtle bright top edge
+                    self.shapes.set_color(Color::new(1.0, 1.0, 1.0, 0.4));
                     self.shapes.draw_rect(obs.x, obs.y, obs.w, 2.0);
 
                     // Main body
@@ -481,25 +483,14 @@ impl ScpGame {
 
                     // Dark bottom edge
                     self.shapes.set_color(Color::new(
-                        (r - 0.06).max(0.0), (g - 0.06).max(0.0), (b - 0.06).max(0.0), 0.8,
+                        (r - 0.15).max(0.0), (g - 0.15).max(0.0), (b - 0.15).max(0.0), 0.8,
                     ));
                     self.shapes.draw_rect(obs.x, obs.y + obs.h - 2.0, obs.w, 2.0);
                 }
                 ObstacleShape::Triangle => {
-                    // Approximate triangle with stacked rects of decreasing width
-                    let steps = (obs.h / 6.0).ceil().max(3.0) as i32;
-                    for i in 0..steps {
-                        let t = i as f32 / steps as f32; // 0 in 0.0..1.0
-                        let row_w = obs.w * (1.0 - t); // wide at bottom, narrow at top
-                        let row_x = obs.x + (obs.w - row_w) * 0.5;
-                        let row_y = obs.y + obs.h - (i as f32 + 1.0) * (obs.h / steps as f32);
-                        let row_h = obs.h / steps as f32 + 1.0; // +1 to avoid gaps
-
-                        // Slight brightness variation per layer
-                        let shade = r + t * 0.04;
-                        self.shapes.set_color(Color::new(shade, shade + t * 0.02, b + t * 0.03, 1.0));
-                        self.shapes.draw_rect(row_x, row_y, row_w, row_h);
-                    }
+                    // Fallback: render as a standard rectangle
+                    self.shapes.set_color(Color::new(r, g, b, 1.0));
+                    self.shapes.draw_rounded_rect(obs.x, obs.y, obs.w, obs.h, 3.0);
                 }
             }
         }
@@ -729,6 +720,58 @@ pub fn get_lives() -> i32 {
     GAME_REF.with(|g| {
         if let Some(ref game) = *g.borrow() {
             game.borrow().world.get_resource::<LivesRes>().map(|l| l.lives).unwrap_or(0)
+        } else { 0 }
+    })
+}
+
+#[wasm_bindgen]
+pub fn get_health() -> i32 {
+    GAME_REF.with(|g| {
+        if let Some(ref game) = *g.borrow() {
+            let game = game.borrow();
+            let world = &game.world;
+            QuerySingle::<Player>::new(world)
+                .and_then(|q| q.iter().next().map(|(_, p)| p.health))
+                .unwrap_or(0)
+        } else { 0 }
+    })
+}
+
+#[wasm_bindgen]
+pub fn get_armor() -> i32 {
+    GAME_REF.with(|g| {
+        if let Some(ref game) = *g.borrow() {
+            let game = game.borrow();
+            let world = &game.world;
+            QuerySingle::<Player>::new(world)
+                .and_then(|q| q.iter().next().map(|(_, p)| p.armor))
+                .unwrap_or(0)
+        } else { 0 }
+    })
+}
+
+#[wasm_bindgen]
+pub fn get_max_health() -> i32 {
+    GAME_REF.with(|g| {
+        if let Some(ref game) = *g.borrow() {
+            let game = game.borrow();
+            let world = &game.world;
+            QuerySingle::<Player>::new(world)
+                .and_then(|q| q.iter().next().map(|(_, p)| p.max_health))
+                .unwrap_or(0)
+        } else { 0 }
+    })
+}
+
+#[wasm_bindgen]
+pub fn get_max_armor() -> i32 {
+    GAME_REF.with(|g| {
+        if let Some(ref game) = *g.borrow() {
+            let game = game.borrow();
+            let world = &game.world;
+            QuerySingle::<Player>::new(world)
+                .and_then(|q| q.iter().next().map(|(_, p)| p.max_armor))
+                .unwrap_or(0)
         } else { 0 }
     })
 }
