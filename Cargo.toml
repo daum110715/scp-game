@@ -1,0 +1,20 @@
+[package]
+name = "scp-game"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "A side-scrolling 2D shooter game set in the SCP Foundation universe, built with Rust and WebAssembly"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+opengame-engine = { path = "../crates/engine" }
+wasm-bindgen = { workspace = true }
+js-sys = { workspace = true }
+web-sys = { workspace = true, features = [
+    "Window",
+    "Performance",
+    "PerformanceTiming",
+] }

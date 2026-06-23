@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>SCP: Containment</title>
+    <style>
+        /* ── Theme ──────────────────────────────────────────────────────── */
+        :root {
+            --color-primary: #4db8ff;
+            --color-primary-dim: rgba(77, 184, 255, 0.4);
+            --color-accent: #ff6b4a;
+            --color-danger: #ff4d4d;
+            --color-danger-dim: rgba(255, 77, 77, 0.4);
+            --color-success: #50fa7b;
+            --color-gold: #ffd740;
+            --color-text: rgba(200, 215, 240, 0.9);
+            --color-text-muted: rgba(160, 175, 200, 0.55);
+            --glass-bg: rgba(8, 12, 24, 0.88);
+            --glass-border: rgba(77, 184, 255, 0.12);
+            --glass-blur: 16px;
+            --glow-primary: 0 0 20px rgba(77, 184, 255, 0.25), 0 0 60px rgba(77, 184, 255, 0.08);
+            --glow-danger: 0 0 20px rgba(255, 77, 77, 0.25), 0 0 60px rgba(255, 77, 77, 0.08);
+            --glow-gold: 0 0 12px rgba(255, 215, 64, 0.3);
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 16px;
+            --radius-pill: 100px;
+            --font-ui: 'Segoe UI', 'Inter', 'Helvetica Neue', Arial, sans-serif;
+            --font-mono: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+        }
+
+        /* ── Reset ──────────────────────────────────────────────────────── */
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; cursor: none !important; }
+        html, body { width: 100%; height: 100%; overflow: hidden; background: #06080f; font-family: var(--font-ui); -webkit-font-smoothing: antialiased; cursor: none; }
+
+        /* ── Layout ─────────────────────────────────────────────────────── */
+        #game-container { position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; cursor: none; }
+        #game-container::after { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.35) 100%); pointer-events: none; z-index: 1; }
+        canvas { display: block; width: 100vw; height: 100vh; object-fit: contain; image-rendering: pixelated; pointer-events: none; cursor: none; }
+        #ui-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: auto; z-index: 10; cursor: none; }
+
+        /* ── Glass Card ─────────────────────────────────────────────────── */
+        .glass { background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: var(--radius-lg); backdrop-filter: blur(var(--glass-blur)); -webkit-backdrop-filter: blur(var(--glass-blur)); }
+
+        /* ── Screen Base ────────────────────────────────────────────────── */
+        .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; animation: screenIn 0.4s ease both; }
+        @keyframes screenIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* ── Start Screen ───────────────────────────────────────────────── */
+        .start-screen { background: rgba(4, 6, 16, 0.7); backdrop-filter: blur(4px); }
+        .start-card { display: flex; flex-direction: column; align-items: center; padding: 3rem 3.5rem; min-width: 320px; max-width: 420px; }
+        .game-title { font-size: clamp(1.8rem, 5vw, 3rem); font-weight: 800; letter-spacing: 0.2em; color: var(--color-primary); text-shadow: 0 0 30px rgba(77, 184, 255, 0.4), 0 0 80px rgba(77, 184, 255, 0.1); text-transform: uppercase; line-height: 1.1; }
+        .game-subtitle { margin-top: 0.6rem; font-size: clamp(0.6rem, 1.5vw, 0.8rem); font-weight: 400; letter-spacing: 0.35em; color: var(--color-accent); text-shadow: 0 0 16px rgba(255, 107, 74, 0.35); text-transform: uppercase; }
+        .divider { width: 80%; height: 1px; margin: 1.8rem 0; background: linear-gradient(90deg, transparent, var(--color-primary-dim), transparent); }
+        .start-buttons { display: flex; gap: 0.8rem; align-items: center; }
+
+        /* ── Buttons ────────────────────────────────────────────────────── */
+        .btn { padding: 0.75em 2.8em; font-family: var(--font-ui); font-size: clamp(0.75rem, 1.6vw, 0.95rem); font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--color-primary); background: transparent; border: 1.5px solid var(--color-primary-dim); border-radius: var(--radius-pill); outline: none; transition: all 0.25s ease; box-shadow: var(--glow-primary); }
+        .btn:hover { background: rgba(77, 184, 255, 0.1); border-color: var(--color-primary); box-shadow: 0 0 30px rgba(77, 184, 255, 0.4), 0 0 80px rgba(77, 184, 255, 0.12); transform: translateY(-1px); }
+        .btn:active { transform: translateY(0); }
+        .btn-danger { color: var(--color-danger); border-color: var(--color-danger-dim); box-shadow: var(--glow-danger); }
+        .btn-danger:hover { background: rgba(255, 77, 77, 0.1); border-color: var(--color-danger); box-shadow: 0 0 30px rgba(255, 77, 77, 0.4), 0 0 80px rgba(255, 77, 77, 0.12); }
+        .btn-sm { padding: 0.5em 1.6em; font-size: 0.75rem; }
+        .btn-icon { padding: 0.5em 0.7em; font-size: 1.1rem; min-width: 2.8em; text-align: center; letter-spacing: 0; }
+
+        /* ── Controls Grid ──────────────────────────────────────────────── */
+        .controls-panel { margin-top: 2rem; padding: 1rem 1.4rem; background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.04); border-radius: var(--radius-md); width: 100%; }
+        .controls-title { font-size: 0.6rem; font-weight: 600; letter-spacing: 0.25em; color: var(--color-text-muted); text-transform: uppercase; margin-bottom: 0.7rem; text-align: center; }
+        .controls-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.4rem 0.9rem; align-items: center; }
+        .keys { display: flex; gap: 0.3rem; justify-content: flex-end; }
+        kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 1.8em; padding: 0.15em 0.5em; font-family: var(--font-mono); font-size: 0.7rem; font-weight: 600; color: rgba(200, 215, 240, 0.8); background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; line-height: 1.4; }
+        .control-label { font-size: 0.72rem; color: var(--color-text-muted); }
+
+        /* ── HUD ────────────────────────────────────────────────────────── */
+        .hud-overlay { pointer-events: none; }
+        .hud-bar { position: absolute; top: 16px; left: 16px; right: 16px; display: flex; align-items: flex-start; justify-content: space-between; }
+        .hud-lives { display: flex; gap: 6px; padding: 8px 12px; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: var(--radius-sm); backdrop-filter: blur(8px); }
+        .life-icon { width: 14px; height: 14px; background: var(--color-gold); border-radius: 3px; box-shadow: var(--glow-gold); animation: lifePulse 2s ease-in-out infinite; }
+        .life-icon:nth-child(2) { animation-delay: 0.3s; }
+        .life-icon:nth-child(3) { animation-delay: 0.6s; }
+        @keyframes lifePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+        .hud-score-panel { text-align: right; padding: 8px 14px; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: var(--radius-sm); backdrop-filter: blur(8px); }
+        .hud-score-label { font-size: 0.55rem; font-weight: 600; letter-spacing: 0.2em; color: var(--color-text-muted); text-transform: uppercase; }
+        .hud-score { font-family: var(--font-mono); font-size: clamp(1rem, 2.5vw, 1.4rem); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--color-success); text-shadow: 0 0 12px rgba(80, 250, 123, 0.3); line-height: 1.2; }
+        .hud-high-score { font-family: var(--font-mono); font-size: 0.6rem; font-variant-numeric: tabular-nums; color: var(--color-gold); opacity: 0.6; margin-top: 2px; }
+        .hud-center { position: absolute; left: 50%; transform: translateX(-50%); }
+        .hud-ammo { display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: var(--radius-sm); backdrop-filter: blur(8px); transition: all 0.2s ease; }
+        .ammo-icon { font-size: 1rem; color: var(--color-primary); opacity: 0.8; }
+        .ammo-text { font-family: var(--font-mono); font-size: clamp(0.9rem, 2vw, 1.1rem); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--color-text); min-width: 60px; text-align: center; }
+        .ammo-low { border-color: rgba(255, 77, 77, 0.3); }
+        .ammo-low .ammo-text { color: var(--color-danger); animation: ammoPulse 0.5s ease-in-out infinite; }
+        .ammo-reloading { border-color: rgba(255, 215, 64, 0.3); }
+        .ammo-reloading .ammo-text { color: var(--color-gold); animation: reloadSpin 0.8s linear infinite; }
+        @keyframes ammoPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        @keyframes reloadSpin { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+
+        /* ── Kill Feed ──────────────────────────────────────────────────── */
+        .kill-feed {
+            position: absolute;
+            bottom: 80px;
+            left: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            pointer-events: none;
+            z-index: 15;
+        }
+        .kill-feed-entry {
+            padding: 6px 12px;
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 77, 77, 0.3);
+            border-radius: 4px;
+            font-size: 0.75rem;
+            color: rgba(255, 200, 200, 0.9);
+            backdrop-filter: blur(4px);
+            animation: killFeedIn 0.3s ease-out;
+            white-space: nowrap;
+        }
+        @keyframes killFeedIn {
+            from { opacity: 0; transform: translateX(-20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        /* ── Pause Screen ───────────────────────────────────────────────── */
+        .pause-screen { background: rgba(4, 6, 16, 0.65); backdrop-filter: blur(6px); }
+        .pause-card { display: flex; flex-direction: column; align-items: center; padding: 2.5rem 3.5rem; min-width: 300px; max-width: 400px; }
+        .pause-title { font-size: clamp(1.6rem, 4vw, 2.4rem); font-weight: 800; letter-spacing: 0.2em; color: var(--color-primary); text-shadow: 0 0 30px rgba(77, 184, 255, 0.3); text-transform: uppercase; margin-bottom: 0.5rem; }
+        .pause-subtitle { font-size: 0.7rem; color: var(--color-text-muted); letter-spacing: 0.15em; margin-bottom: 2rem; }
+        .pause-buttons { display: flex; flex-direction: column; gap: 0.8rem; width: 100%; align-items: center; }
+
+        /* ── Settings Panel ─────────────────────────────────────────────── */
+        .settings-screen { background: rgba(4, 6, 16, 0.7); backdrop-filter: blur(6px); }
+        .settings-card { display: flex; flex-direction: column; padding: 2rem 2.5rem; min-width: 380px; max-width: 480px; max-height: 80vh; }
+        .settings-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; }
+        .settings-title { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.15em; color: var(--color-primary); text-transform: uppercase; }
+        .settings-close { background: none; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: var(--radius-sm); color: var(--color-text-muted); font-size: 1rem; padding: 0.3em 0.6em; cursor: none; transition: all 0.2s; }
+        .settings-close:hover { color: var(--color-danger); border-color: var(--color-danger-dim); }
+
+        /* Tabs */
+        .settings-tabs { display: flex; gap: 2px; margin-bottom: 1.5rem; background: rgba(0, 0, 0, 0.3); border-radius: var(--radius-sm); padding: 3px; }
+        .settings-tab { flex: 1; padding: 0.5em 0.3em; font-size: 0.65rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; text-align: center; color: var(--color-text-muted); background: transparent; border: none; border-radius: 4px; cursor: none; transition: all 0.2s; }
+        .settings-tab.active { color: var(--color-primary); background: rgba(77, 184, 255, 0.1); }
+        .settings-tab:hover:not(.active) { color: var(--color-text); }
+
+        /* Tab content */
+        .settings-body { overflow-y: auto; flex: 1; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* Setting rows */
+        .setting-row { display: flex; align-items: center; justify-content: space-between; padding: 0.7rem 0; border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
+        .setting-row:last-child { border-bottom: none; }
+        .setting-label { font-size: 0.8rem; color: var(--color-text); }
+        .setting-desc { font-size: 0.6rem; color: var(--color-text-muted); margin-top: 2px; }
+
+        /* Range slider */
+        input[type="range"] { -webkit-appearance: none; appearance: none; width: 120px; height: 4px; background: rgba(255, 255, 255, 0.1); border-radius: 2px; outline: none; cursor: none; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; background: var(--color-primary); border-radius: 50%; cursor: none; box-shadow: 0 0 8px rgba(77, 184, 255, 0.4); }
+        input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; background: var(--color-primary); border-radius: 50%; border: none; cursor: none; box-shadow: 0 0 8px rgba(77, 184, 255, 0.4); }
+        .range-group { display: flex; align-items: center; gap: 10px; }
+        .range-value { font-family: var(--font-mono); font-size: 0.7rem; color: var(--color-text-muted); min-width: 3em; text-align: right; }
+
+        /* Toggle switch */
+        .toggle { position: relative; width: 40px; height: 22px; background: rgba(255, 255, 255, 0.1); border-radius: 11px; cursor: none; transition: background 0.2s; }
+        .toggle.on { background: rgba(77, 184, 255, 0.35); }
+        .toggle::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; background: var(--color-text-muted); border-radius: 50%; transition: all 0.2s; }
+        .toggle.on::after { left: 21px; background: var(--color-primary); box-shadow: 0 0 8px rgba(77, 184, 255, 0.5); }
+
+        /* Difficulty selector */
+        .diff-group { display: flex; gap: 4px; }
+        .diff-btn { padding: 0.35em 0.9em; font-size: 0.65rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: var(--radius-sm); color: var(--color-text-muted); cursor: none; transition: all 0.2s; }
+        .diff-btn.active { color: var(--color-primary); background: rgba(77, 184, 255, 0.12); border-color: rgba(77, 184, 255, 0.3); }
+        .diff-btn:hover:not(.active) { color: var(--color-text); border-color: rgba(255, 255, 255, 0.15); }
+
+        /* Crosshair color presets */
+        .color-presets { display: flex; gap: 8px; }
+        .color-swatch { width: 24px; height: 24px; border-radius: 50%; border: 2px solid transparent; cursor: none; transition: all 0.2s; }
+        .color-swatch.active { border-color: white; box-shadow: 0 0 10px rgba(255, 255, 255, 0.3); transform: scale(1.15); }
+        .color-swatch:hover:not(.active) { transform: scale(1.1); }
+
+        /* ── Game Over Screen ───────────────────────────────────────────── */
+        .gameover-screen { background: rgba(4, 4, 12, 0.75); backdrop-filter: blur(6px); }
+        .gameover-card { display: flex; flex-direction: column; align-items: center; padding: 2.5rem 3.5rem; min-width: 300px; max-width: 400px; }
+        .gameover-title { font-size: clamp(1.6rem, 4.5vw, 2.6rem); font-weight: 800; letter-spacing: 0.15em; color: var(--color-danger); text-shadow: 0 0 30px rgba(255, 77, 77, 0.4), 0 0 80px rgba(255, 77, 77, 0.1); text-transform: uppercase; animation: gameoverIn 0.5s ease both; }
+        @keyframes gameoverIn { from { opacity: 0; transform: scale(0.9) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+        .gameover-score-block { margin-top: 1.6rem; text-align: center; animation: fadeUp 0.5s ease 0.2s both; }
+        .gameover-score-label { font-size: 0.6rem; font-weight: 600; letter-spacing: 0.25em; color: var(--color-text-muted); text-transform: uppercase; }
+        .gameover-score { font-family: var(--font-mono); font-size: clamp(2rem, 5vw, 3rem); font-weight: 800; font-variant-numeric: tabular-nums; color: var(--color-gold); text-shadow: 0 0 20px rgba(255, 215, 64, 0.35); line-height: 1.2; }
+        .gameover-high { margin-top: 0.5rem; font-size: 0.72rem; color: var(--color-gold); opacity: 0.55; animation: fadeUp 0.5s ease 0.35s both; }
+        .gameover-high.new-record { opacity: 1; font-weight: 700; letter-spacing: 0.1em; text-shadow: 0 0 12px rgba(255, 215, 64, 0.3); }
+        .gameover-replay { margin-top: 2rem; animation: fadeUp 0.5s ease 0.6s both; }
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* ── Crosshair ──────────────────────────────────────────────────── */
+        #crosshair { position: fixed; pointer-events: none; z-index: 9999; width: 20px; height: 20px; transform: translate(-50%, -50%); mix-blend-mode: screen; }
+        .crosshair-line { position: absolute; background: #00ff88; box-shadow: 0 0 3px #00ff88, 0 0 8px rgba(0, 255, 136, 0.4); }
+        .crosshair-top { top: 0; left: 50%; width: 1.5px; height: 6px; transform: translateX(-50%); }
+        .crosshair-bottom { bottom: 0; left: 50%; width: 1.5px; height: 6px; transform: translateX(-50%); }
+        .crosshair-left { left: 0; top: 50%; width: 6px; height: 1.5px; transform: translateY(-50%); }
+        .crosshair-right { right: 0; top: 50%; width: 6px; height: 1.5px; transform: translateY(-50%); }
+        .crosshair-dot { position: absolute; top: 50%; left: 50%; width: 2.5px; height: 2.5px; background: #00ff88; border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 4px #00ff88; }
+    </style>
+    <link data-trunk rel="rust" data-wasm-opt="z" data-type="main" />
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas"></canvas>
+        <div id="ui-overlay"></div>
+        <div id="kill-feed" class="kill-feed"></div>
+        <div id="crosshair">
+            <div class="crosshair-line crosshair-top"></div>
+            <div class="crosshair-line crosshair-bottom"></div>
+            <div class="crosshair-line crosshair-left"></div>
+            <div class="crosshair-line crosshair-right"></div>
+            <div class="crosshair-dot"></div>
+        </div>
+    </div>
+
+    <script>
+        // ── WASM bridge ──────────────────────────────────────────────────
+        function wasm() { return window.wasmBindings || {}; }
+        function callWasm(name, fallback) {
+            try { var fn = wasm()[name]; return typeof fn === 'function' ? fn() : fallback; }
+            catch(e) { return fallback; }
+        }
+
+        // ── Web Audio Sound Engine ───────────────────────────────────────
+        var SoundEngine = (function() {
+            var ctx = null;
+            var sfxVolume = 0.8;
+
+            function resume() {
+                if (!ctx) {
+                    ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (ctx.state === 'suspended') {
+                    ctx.resume().then(function() {
+                        console.log('[SoundEngine] AudioContext resumed');
+                    });
+                }
+            }
+
+            function ensureCtx() {
+                if (!ctx) {
+                    ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (ctx.state === 'suspended') ctx.resume();
+                return ctx;
+            }
+
+            function setVolume(v) { sfxVolume = Math.max(0, Math.min(1, v)); }
+
+            // White noise buffer (shared)
+            var noiseBuf = null;
+            function getNoiseBuf() {
+                if (noiseBuf) return noiseBuf;
+                var c = ensureCtx();
+                var len = c.sampleRate * 0.1; // 100ms
+                noiseBuf = c.createBuffer(1, len, c.sampleRate);
+                var data = noiseBuf.getChannelData(0);
+                for (var i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+                return noiseBuf;
+            }
+
+            function playNoise(duration, freq, vol, attack, decay) {
+                var c = ensureCtx();
+                var now = c.currentTime;
+                var src = c.createBufferSource();
+                src.buffer = getNoiseBuf();
+                var filt = c.createBiquadFilter();
+                filt.type = 'bandpass';
+                filt.frequency.value = freq;
+                filt.Q.value = 1.0;
+                var gain = c.createGain();
+                gain.gain.setValueAtTime(0, now);
+                gain.gain.linearRampToValueAtTime(vol * sfxVolume, now + attack);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + attack + decay);
+                src.connect(filt);
+                filt.connect(gain);
+                gain.connect(c.destination);
+                src.start(now);
+                src.stop(now + attack + decay + 0.01);
+            }
+
+            function playTone(freq, duration, vol, type, attack, decay) {
+                var c = ensureCtx();
+                var now = c.currentTime;
+                var osc = c.createOscillator();
+                osc.type = type || 'sine';
+                osc.frequency.setValueAtTime(freq, now);
+                var gain = c.createGain();
+                gain.gain.setValueAtTime(0, now);
+                gain.gain.linearRampToValueAtTime(vol * sfxVolume, now + attack);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + attack + decay);
+                osc.connect(gain);
+                gain.connect(c.destination);
+                osc.start(now);
+                osc.stop(now + attack + decay + 0.01);
+            }
+
+            function playGunshot() {
+                playNoise(0.08, 3000, 0.5, 0.001, 0.06);
+                playNoise(0.06, 800, 0.4, 0.001, 0.04);
+                playTone(120, 0.08, 0.3, 'sine', 0.001, 0.06);
+            }
+
+            function playEnemyShot() {
+                playNoise(0.06, 4500, 0.35, 0.001, 0.04);
+                playTone(200, 0.05, 0.2, 'square', 0.001, 0.04);
+            }
+
+            function playFootstep() {
+                playNoise(0.03, 400, 0.12, 0.001, 0.025);
+                playTone(80, 0.04, 0.08, 'sine', 0.001, 0.03);
+            }
+
+            function playJump() {
+                var c = ensureCtx();
+                var now = c.currentTime;
+                var osc = c.createOscillator();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(200, now);
+                osc.frequency.exponentialRampToValueAtTime(500, now + 0.12);
+                var gain = c.createGain();
+                gain.gain.setValueAtTime(0.15 * sfxVolume, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+                osc.connect(gain);
+                gain.connect(c.destination);
+                osc.start(now);
+                osc.stop(now + 0.16);
+            }
+
+            function playHit() {
+                playNoise(0.1, 2000, 0.4, 0.001, 0.08);
+                playTone(300, 0.1, 0.25, 'sine', 0.001, 0.08);
+                playTone(150, 0.12, 0.2, 'triangle', 0.01, 0.1);
+            }
+
+            function playHurt() {
+                playNoise(0.15, 600, 0.45, 0.001, 0.12);
+                playTone(80, 0.2, 0.35, 'sawtooth', 0.001, 0.15);
+            }
+
+            function playReload() {
+                playNoise(0.03, 6000, 0.25, 0.001, 0.02);
+                setTimeout(function() {
+                    playNoise(0.04, 5000, 0.3, 0.001, 0.03);
+                    playTone(800, 0.04, 0.15, 'square', 0.001, 0.03);
+                }, 120);
+            }
+
+            return {
+                resume: resume,
+                setVolume: setVolume,
+                playGunshot: playGunshot,
+                playEnemyShot: playEnemyShot,
+                playFootstep: playFootstep,
+                playJump: playJump,
+                playHit: playHit,
+                playHurt: playHurt,
+                playReload: playReload
+            };
+        })();
+
+        // ── Global sound callback for direct WASM→JS calls ──────────────
+        window.__playSound = function(name) {
+            SoundEngine.setVolume(settings.sfx_volume || 0.8);
+            if (name === 'shoot') SoundEngine.playGunshot();
+            else if (name === 'enemy_shoot') SoundEngine.playEnemyShot();
+            else if (name === 'footstep') SoundEngine.playFootstep();
+            else if (name === 'jump') SoundEngine.playJump();
+            else if (name === 'hit') SoundEngine.playHit();
+            else if (name === 'hurt') SoundEngine.playHurt();
+            else if (name === 'reload') SoundEngine.playReload();
+        };
+
+        // ── Settings persistence ─────────────────────────────────────────
+        var SETTINGS_KEY = 'scp_settings';
+        var DEFAULTS = {
+            master_volume: 0.8, sfx_volume: 0.8, music_volume: 0.6,
+            screen_shake: true, show_fps: false,
+            difficulty: 1, aim_assist: false,
+            crosshair_color: '0,1,0.53', crosshair_size: 1.0
+        };
+
+        function loadSettings() {
+            try {
+                var raw = localStorage.getItem(SETTINGS_KEY);
+                if (raw) return JSON.parse(raw);
+            } catch(e) {}
+            return Object.assign({}, DEFAULTS);
+        }
+
+        function saveSettings(s) {
+            try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch(e) {}
+        }
+
+        function syncSettingToWasm(key, val) {
+            if (typeof val === 'boolean') val = val ? 'true' : 'false';
+            callWasm('set_setting', undefined);
+            try { wasm().set_setting(key, String(val)); } catch(e) {}
+        }
+
+        function syncAllToWasm(s) {
+            for (var k in s) {
+                if (k === 'crosshair_color') {
+                    var parts = String(s[k]).split(',');
+                    syncSettingToWasm('crosshair_r', parts[0] || '0');
+                    syncSettingToWasm('crosshair_g', parts[1] || '1');
+                    syncSettingToWasm('crosshair_b', parts[2] || '0.53');
+                } else {
+                    syncSettingToWasm(k, s[k]);
+                }
+            }
+        }
+
+        var settings = loadSettings();
+        var showingSettings = false;
+        var settingsOrigin = 'start'; // 'start' or 'pause'
+
+        // ── Crosshair update ─────────────────────────────────────────────
+        function updateCrosshair() {
+            var el = document.getElementById('crosshair');
+            var parts = String(settings.crosshair_color || '0,1,0.53').split(',');
+            var r = Math.round((parseFloat(parts[0]) || 0) * 255);
+            var g = Math.round((parseFloat(parts[1]) || 1) * 255);
+            var b = Math.round((parseFloat(parts[2]) || 0.53) * 255);
+            var color = 'rgb(' + r + ',' + g + ',' + b + ')';
+            var glow = 'rgba(' + r + ',' + g + ',' + b + ',0.4)';
+            var sz = parseFloat(settings.crosshair_size) || 1.0;
+            var lines = el.querySelectorAll('.crosshair-line');
+            for (var i = 0; i < lines.length; i++) {
+                lines[i].style.background = color;
+                lines[i].style.boxShadow = '0 0 3px ' + color + ', 0 0 8px ' + glow;
+            }
+            var dot = el.querySelector('.crosshair-dot');
+            dot.style.background = color;
+            dot.style.boxShadow = '0 0 4px ' + color;
+            el.style.width = (20 * sz) + 'px';
+            el.style.height = (20 * sz) + 'px';
+        }
+
+        // ── UI Rendering ─────────────────────────────────────────────────
+        var overlay = document.getElementById('ui-overlay');
+
+        function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+        function renderSettingsPanel() {
+            var diff = parseInt(settings.difficulty) || 1;
+            var diffNames = ['Easy', 'Normal', 'Hard'];
+            var shakeOn = settings.screen_shake !== false;
+            var fpsOn = settings.show_fps === true;
+            var aimOn = settings.aim_assist === true;
+            var colors = [[0,1,0.53,'Green'],[0,0.73,1,'Cyan'],[1,0.3,0.3,'Red'],[1,1,1,'White'],[1,0.85,0,'Gold']];
+            var curColor = String(settings.crosshair_color || '0,1,0.53');
+            var sz = parseFloat(settings.crosshair_size) || 1.0;
+
+            var colorSwatches = '';
+            for (var i = 0; i < colors.length; i++) {
+                var c = colors[i];
+                var rgb = c[0] + ',' + c[1] + ',' + c[2];
+                var active = rgb === curColor ? ' active' : '';
+                colorSwatches += '<div class="color-swatch' + active + '" data-color="' + rgb + '" title="' + c[3] + '" style="background:rgb(' + Math.round(c[0]*255) + ',' + Math.round(c[1]*255) + ',' + Math.round(c[2]*255) + ')"></div>';
+            }
+
+            return '<div class="screen settings-screen">' +
+                '<div class="settings-card glass">' +
+                '<div class="settings-header"><span class="settings-title">Settings</span><button class="settings-close" id="settings-close-btn">&times;</button></div>' +
+                '<div class="settings-tabs">' +
+                '<button class="settings-tab active" data-tab="audio">Audio</button>' +
+                '<button class="settings-tab" data-tab="display">Display</button>' +
+                '<button class="settings-tab" data-tab="gameplay">Game</button>' +
+                '<button class="settings-tab" data-tab="crosshair">Aim</button>' +
+                '<button class="settings-tab" data-tab="controls">Keys</button>' +
+                '</div>' +
+                '<div class="settings-body">' +
+
+                // Audio tab
+                '<div class="tab-content active" id="tab-audio">' +
+                '<div class="setting-row"><div><div class="setting-label">Master Volume</div></div><div class="range-group"><input type="range" min="0" max="100" value="' + Math.round((settings.master_volume||0.8)*100) + '" data-key="master_volume"><span class="range-value">' + Math.round((settings.master_volume||0.8)*100) + '%</span></div></div>' +
+                '<div class="setting-row"><div><div class="setting-label">SFX Volume</div></div><div class="range-group"><input type="range" min="0" max="100" value="' + Math.round((settings.sfx_volume||0.8)*100) + '" data-key="sfx_volume"><span class="range-value">' + Math.round((settings.sfx_volume||0.8)*100) + '%</span></div></div>' +
+                '<div class="setting-row"><div><div class="setting-label">Music Volume</div></div><div class="range-group"><input type="range" min="0" max="100" value="' + Math.round((settings.music_volume||0.6)*100) + '" data-key="music_volume"><span class="range-value">' + Math.round((settings.music_volume||0.6)*100) + '%</span></div></div>' +
+                '</div>' +
+
+                // Display tab
+                '<div class="tab-content" id="tab-display">' +
+                '<div class="setting-row"><div><div class="setting-label">Screen Shake</div><div class="setting-desc">Camera shake on hits</div></div><div class="toggle' + (shakeOn ? ' on' : '') + '" data-key="screen_shake"></div></div>' +
+                '<div class="setting-row"><div><div class="setting-label">Show FPS</div><div class="setting-desc">Display frame rate</div></div><div class="toggle' + (fpsOn ? ' on' : '') + '" data-key="show_fps"></div></div>' +
+                '</div>' +
+
+                // Gameplay tab
+                '<div class="tab-content" id="tab-gameplay">' +
+                '<div class="setting-row"><div><div class="setting-label">Difficulty</div><div class="setting-desc">Enemy accuracy & aggression</div></div><div class="diff-group">' +
+                '<button class="diff-btn' + (diff===0?' active':'') + '" data-diff="0">Easy</button>' +
+                '<button class="diff-btn' + (diff===1?' active':'') + '" data-diff="1">Normal</button>' +
+                '<button class="diff-btn' + (diff===2?' active':'') + '" data-diff="2">Hard</button>' +
+                '</div></div>' +
+                '<div class="setting-row"><div><div class="setting-label">Aim Assist</div><div class="setting-desc">Subtle bullet magnetism</div></div><div class="toggle' + (aimOn ? ' on' : '') + '" data-key="aim_assist"></div></div>' +
+                '</div>' +
+
+                // Crosshair tab
+                '<div class="tab-content" id="tab-crosshair">' +
+                '<div class="setting-row"><div><div class="setting-label">Color</div></div><div class="color-presets">' + colorSwatches + '</div></div>' +
+                '<div class="setting-row"><div><div class="setting-label">Size</div></div><div class="range-group"><input type="range" min="50" max="200" value="' + Math.round(sz*100) + '" data-key="crosshair_size"><span class="range-value">' + sz.toFixed(1) + 'x</span></div></div>' +
+                '</div>' +
+
+                // Controls tab
+                '<div class="tab-content" id="tab-controls">' +
+                '<div class="controls-panel" style="margin-top:0">' +
+                '<div class="controls-grid">' +
+                '<div class="keys"><kbd>A</kbd><kbd>D</kbd></div><span class="control-label">Move</span>' +
+                '<div class="keys"><kbd>W</kbd><kbd>Space</kbd></div><span class="control-label">Jump</span>' +
+                '<div class="keys"><kbd>S</kbd></div><span class="control-label">Slide</span>' +
+                '<div class="keys"><kbd>Mouse</kbd></div><span class="control-label">Aim</span>' +
+                '<div class="keys"><kbd>LMB</kbd><kbd>J</kbd></div><span class="control-label">Fire</span>' +
+                '<div class="keys"><kbd>R</kbd></div><span class="control-label">Reload</span>' +
+                '<div class="keys"><kbd>Esc</kbd></div><span class="control-label">Pause</span>' +
+                '</div></div>' +
+                '</div>' +
+
+                '</div></div></div>';
+        }
+
+        function render(state, score, lives, high, ammo, maxAmmo, reloading) {
+            var html = '';
+            if (showingSettings) {
+                html = renderSettingsPanel();
+            } else if (state === 0) {
+                html = '<div class="screen start-screen">' +
+                    '<div class="start-card glass">' +
+                    '<div class="game-title">SCP</div>' +
+                    '<div class="game-subtitle">Containment Protocol</div>' +
+                    '<div class="divider"></div>' +
+                    '<div class="start-buttons">' +
+                    '<div class="btn">Start Mission</div>' +
+                    '<div class="btn btn-icon" id="settings-gear-btn" title="Settings">&#9881;</div>' +
+                    '</div>' +
+                    '<div class="controls-panel">' +
+                    '<div class="controls-title">Controls</div>' +
+                    '<div class="controls-grid">' +
+                    '<div class="keys"><kbd>A</kbd><kbd>D</kbd></div><span class="control-label">Move</span>' +
+                    '<div class="keys"><kbd>W</kbd><kbd>Space</kbd></div><span class="control-label">Jump</span>' +
+                    '<div class="keys"><kbd>S</kbd></div><span class="control-label">Slide</span>' +
+                    '<div class="keys"><kbd>Mouse</kbd></div><span class="control-label">Aim</span>' +
+                    '<div class="keys"><kbd>LMB</kbd><kbd>J</kbd></div><span class="control-label">Fire</span>' +
+                    '<div class="keys"><kbd>R</kbd></div><span class="control-label">Reload</span>' +
+                    '</div></div></div></div>';
+            } else if (state === 1) {
+                var icons = '';
+                for (var i = 0; i < lives; i++) icons += '<div class="life-icon"></div>';
+                var ammoClass = reloading ? 'ammo-reloading' : (ammo <= 5 ? 'ammo-low' : '');
+                var ammoText = reloading ? 'RELOADING...' : ammo + ' / ' + maxAmmo;
+                html = '<div class="screen hud-overlay">' +
+                    '<div class="hud-bar">' +
+                    '<div class="hud-lives"><div id="hud-lives-inner">' + icons + '</div></div>' +
+                    '<div class="hud-center"><div class="hud-ammo ' + ammoClass + '" id="hud-ammo-wrap"><div class="ammo-icon">&#x2B21;</div><div class="ammo-text" id="hud-ammo-text">' + ammoText + '</div></div></div>' +
+                    '<div class="hud-score-panel">' +
+                    '<div class="hud-score-label">Score</div>' +
+                    '<div class="hud-score" id="hud-score-val">' + score + '</div>' +
+                    '<div class="hud-high-score" id="hud-high-val" style="' + (high > 0 ? '' : 'display:none') + '">HI ' + high + '</div>' +
+                    '</div></div></div>';
+            } else if (state === 3) {
+                html = '<div class="screen pause-screen">' +
+                    '<div class="pause-card glass">' +
+                    '<div class="pause-title">Paused</div>' +
+                    '<div class="pause-subtitle">Press <kbd>Esc</kbd> to resume</div>' +
+                    '<div class="pause-buttons">' +
+                    '<div class="btn" id="resume-btn">Resume</div>' +
+                    '<div class="btn btn-sm" id="pause-settings-btn">Settings</div>' +
+                    '</div></div></div>';
+            } else if (state === 2) {
+                var isNew = score >= high && score > 0;
+                html = '<div class="screen gameover-screen">' +
+                    '<div class="gameover-card glass">' +
+                    '<div class="gameover-title">Mission Failed</div>' +
+                    '<div class="gameover-score-block"><div class="gameover-score-label">Final Score</div><div class="gameover-score">' + score + '</div></div>' +
+                    (isNew ? '<div class="gameover-high new-record">&#9733; New High Score &#9733;</div>' :
+                     high > 0 ? '<div class="gameover-high">Best: ' + high + '</div>' : '') +
+                    '<div class="gameover-replay"><div class="btn btn-danger">Replay</div></div>' +
+                    '</div></div>';
+            }
+            overlay.innerHTML = html;
+            bindOverlayEvents();
+        }
+
+        // ── Event binding ────────────────────────────────────────────────
+        function bindOverlayEvents() {
+            // Settings gear on start screen
+            var gear = document.getElementById('settings-gear-btn');
+            if (gear) {
+                gear.addEventListener('mousedown', function(e) {
+                    e.stopPropagation();
+                    showingSettings = true;
+                    settingsOrigin = 'start';
+                    rerender();
+                });
+            }
+
+            // Pause screen buttons
+            var resumeBtn = document.getElementById('resume-btn');
+            if (resumeBtn) {
+                resumeBtn.addEventListener('mousedown', function(e) {
+                    e.stopPropagation();
+                    callWasm('resume_game');
+                });
+            }
+            var pauseSetBtn = document.getElementById('pause-settings-btn');
+            if (pauseSetBtn) {
+                pauseSetBtn.addEventListener('mousedown', function(e) {
+                    e.stopPropagation();
+                    showingSettings = true;
+                    settingsOrigin = 'pause';
+                    rerender();
+                });
+            }
+
+            // Settings close
+            var closeBtn = document.getElementById('settings-close-btn');
+            if (closeBtn) {
+                closeBtn.addEventListener('mousedown', function(e) {
+                    e.stopPropagation();
+                    showingSettings = false;
+                    rerender();
+                });
+            }
+
+            // Settings tabs
+            var tabs = overlay.querySelectorAll('.settings-tab');
+            for (var i = 0; i < tabs.length; i++) {
+                tabs[i].addEventListener('mousedown', function(e) {
+                    e.stopPropagation();
+                    var tabName = this.getAttribute('data-tab');
+                    var allTabs = overlay.querySelectorAll('.settings-tab');
+                    var allContent = overlay.querySelectorAll('.tab-content');
+                    for (var j = 0; j < allTabs.length; j++) allTabs[j].classList.remove('active');
+                    for (var j = 0; j < allContent.length; j++) allContent[j].classList.remove('active');
+                    this.classList.add('active');
+                    var target = document.getElementById('tab-' + tabName);
+                    if (target) target.classList.add('active');
+                });
+            }
+
+            // Range sliders
+            var ranges = overlay.querySelectorAll('input[type="range"]');
+            for (var i = 0; i < ranges.length; i++) {
+                ranges[i].addEventListener('input', function(e) {
+                    e.stopPropagation();
+                    var key = this.getAttribute('data-key');
+                    var val = parseInt(this.value);
+                    var display = this.nextElementSibling;
+                    if (key === 'crosshair_size') {
+                        var v = (val / 100).toFixed(1);
+                        settings.crosshair_size = parseFloat(v);
+                        if (display) display.textContent = v + 'x';
+                        syncSettingToWasm('crosshair_size', v);
+                    } else {
+                        settings[key] = val / 100;
+                        if (display) display.textContent = val + '%';
+                        syncSettingToWasm(key, val / 100);
+                    }
+                    saveSettings(settings);
+                    updateCrosshair();
+                });
+                // Prevent range clicks from propagating to game overlay handler
+                ranges[i].addEventListener('mousedown', function(e) { e.stopPropagation(); });
+            }
+
+            // Toggles
+            var toggles = overlay.querySelectorAll('.toggle');
+            for (var i = 0; i < toggles.length; i++) {
+                toggles[i].addEventListener('mousedown', function(e) {
+                    e.stopPropagation();
+                    var key = this.getAttribute('data-key');
+                    this.classList.toggle('on');
+                    var on = this.classList.contains('on');
+                    settings[key] = on;
+                    syncSettingToWasm(key, on);
+                    saveSettings(settings);
+                });
+            }
+
+            // Difficulty buttons
+            var diffBtns = overlay.querySelectorAll('.diff-btn');
+            for (var i = 0; i < diffBtns.length; i++) {
+                diffBtns[i].addEventListener('mousedown', function(e) {
+                    e.stopPropagation();
+                    var d = this.getAttribute('data-diff');
+                    settings.difficulty = parseInt(d);
+                    var all = overlay.querySelectorAll('.diff-btn');
+                    for (var j = 0; j < all.length; j++) all[j].classList.remove('active');
+                    this.classList.add('active');
+                    syncSettingToWasm('difficulty', d);
+                    saveSettings(settings);
+                });
+            }
+
+            // Color swatches
+            var swatches = overlay.querySelectorAll('.color-swatch');
+            for (var i = 0; i < swatches.length; i++) {
+                swatches[i].addEventListener('mousedown', function(e) {
+                    e.stopPropagation();
+                    var color = this.getAttribute('data-color');
+                    settings.crosshair_color = color;
+                    var all = overlay.querySelectorAll('.color-swatch');
+                    for (var j = 0; j < all.length; j++) all[j].classList.remove('active');
+                    this.classList.add('active');
+                    var parts = color.split(',');
+                    syncSettingToWasm('crosshair_r', parts[0]);
+                    syncSettingToWasm('crosshair_g', parts[1]);
+                    syncSettingToWasm('crosshair_b', parts[2]);
+                    saveSettings(settings);
+                    updateCrosshair();
+                });
+            }
+        }
+
+        // ── Overlay click handler ────────────────────────────────────────
+        overlay.addEventListener('mousedown', function(e) {
+            // Resume AudioContext on first user interaction (browser autoplay policy)
+            SoundEngine.resume();
+            // Don't handle game clicks when settings are open
+            if (showingSettings) return;
+            var state = callWasm('get_game_state', 0);
+            if (state === 0) callWasm('start_game');
+            else if (state === 2) callWasm('restart_game');
+            else if (state === 3) callWasm('resume_game');
+        });
+
+        // ── Escape key handler ───────────────────────────────────────────
+        document.addEventListener('keydown', function(e) {
+            // Resume AudioContext on any key press (browser autoplay policy)
+            SoundEngine.resume();
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                if (showingSettings) {
+                    showingSettings = false;
+                    rerender();
+                    return;
+                }
+                var state = callWasm('get_game_state', 0);
+                if (state === 1) {
+                    callWasm('pause_game');
+                } else if (state === 3) {
+                    callWasm('resume_game');
+                }
+            }
+        });
+
+        // ── Crosshair cursor ─────────────────────────────────────────────
+        var crosshair = document.getElementById('crosshair');
+        document.addEventListener('mousemove', function(e) {
+            crosshair.style.left = e.clientX + 'px';
+            crosshair.style.top = e.clientY + 'px';
+        });
+
+        // ── Poll loop ────────────────────────────────────────────────────
+        var prevState = -1;
+        var prevScore = -1, prevLives = -1, prevHigh = -1, prevAmmo = -1, prevMaxAmmo = -1, prevReloading = -1;
+        var settingsRendered = false; // track whether settings panel is already in the DOM
+
+        function rerender() {
+            // Force full re-render on next poll
+            prevState = -1;
+            settingsRendered = false;
+            poll();
+        }
+
+        function updateHud(score, lives, high, ammo, maxAmmo, reloading) {
+            // Targeted DOM updates — no innerHTML replacement, no flicker
+            var scoreEl = document.getElementById('hud-score-val');
+            if (scoreEl && score !== prevScore) { scoreEl.textContent = score; prevScore = score; }
+
+            var highEl = document.getElementById('hud-high-val');
+            if (highEl && high !== prevHigh) { highEl.textContent = 'HI ' + high; highEl.style.display = high > 0 ? '' : 'none'; prevHigh = high; }
+
+            // Lives: only rebuild if count changed
+            if (lives !== prevLives) {
+                var livesEl = document.getElementById('hud-lives-inner');
+                if (livesEl) {
+                    var icons = '';
+                    for (var i = 0; i < lives; i++) icons += '<div class="life-icon"></div>';
+                    livesEl.innerHTML = icons;
+                }
+                prevLives = lives;
+            }
+
+            // Ammo
+            if (ammo !== prevAmmo || maxAmmo !== prevMaxAmmo || reloading !== prevReloading) {
+                var ammoWrap = document.getElementById('hud-ammo-wrap');
+                var ammoText = document.getElementById('hud-ammo-text');
+                if (ammoWrap && ammoText) {
+                    ammoWrap.className = 'hud-ammo' + (reloading ? ' ammo-reloading' : (ammo <= 5 ? ' ammo-low' : ''));
+                    ammoText.textContent = reloading ? 'RELOADING...' : ammo + ' / ' + maxAmmo;
+                }
+                prevAmmo = ammo;
+                prevMaxAmmo = maxAmmo;
+                prevReloading = reloading;
+            }
+        }
+
+        var killFeedMessages = [];
+        var killFeedTimers = [];
+        var killFeedDirty = false;
+
+        function updateKillFeed() {
+            var killFeedEl = document.getElementById('kill-feed');
+            if (!killFeedEl) return;
+
+            // Get new messages from WASM (drain - returns once then clears)
+            var feedStr = callWasm('drain_kill_feed', '');
+            if (feedStr) {
+                var messages = feedStr.split('|');
+                for (var i = 0; i < messages.length; i++) {
+                    if (messages[i]) {
+                        killFeedMessages.push(messages[i]);
+                        killFeedTimers.push(4000); // 4 seconds in milliseconds
+                        killFeedDirty = true;
+                    }
+                }
+            }
+
+            // Update timers and remove expired messages
+            for (var i = killFeedTimers.length - 1; i >= 0; i--) {
+                killFeedTimers[i] -= 100; // Subtract poll interval (100ms)
+                if (killFeedTimers[i] <= 0) {
+                    killFeedMessages.splice(i, 1);
+                    killFeedTimers.splice(i, 1);
+                    killFeedDirty = true;
+                }
+            }
+
+            // Only update DOM when there are changes
+            if (killFeedDirty) {
+                if (killFeedMessages.length > 0) {
+                    var html = '';
+                    for (var i = 0; i < killFeedMessages.length; i++) {
+                        html += '<div class="kill-feed-entry">' + escHtml(killFeedMessages[i]) + '</div>';
+                    }
+                    killFeedEl.innerHTML = html;
+                } else {
+                    killFeedEl.innerHTML = '';
+                }
+                killFeedDirty = false;
+            }
+        }
+
+        function poll() {
+            var state = callWasm('get_game_state', 0);
+            var score = callWasm('get_score', 0);
+            var lives = callWasm('get_lives', 3);
+            var high = callWasm('get_high_score', 0);
+            var ammo = callWasm('get_ammo', 30);
+            var maxAmmo = callWasm('get_max_ammo', 30);
+            var reloading = callWasm('get_reloading', false);
+
+            // Settings panel: render once when opened, then leave it alone
+            if (showingSettings) {
+                if (!settingsRendered) {
+                    render(state, score, lives, high, ammo, maxAmmo, reloading);
+                    settingsRendered = true;
+                }
+                return;
+            }
+
+            // Full re-render only on state transitions
+            if (state !== prevState) {
+                render(state, score, lives, high, ammo, maxAmmo, reloading);
+                prevState = state;
+                prevScore = score; prevLives = lives; prevHigh = high;
+                prevAmmo = ammo; prevMaxAmmo = maxAmmo; prevReloading = reloading;
+
+                // Clear kill feed on state transitions
+                killFeedMessages = [];
+                killFeedTimers = [];
+                var killFeedEl = document.getElementById('kill-feed');
+                if (killFeedEl) killFeedEl.innerHTML = '';
+            } else if (state === 1) {
+                // Gameplay steady state: targeted DOM updates only — no flicker
+                updateHud(score, lives, high, ammo, maxAmmo, reloading);
+            }
+
+            // Update kill feed during gameplay
+            if (state === 1) {
+                updateKillFeed();
+            }
+        }
+
+        // Init: sync loaded settings to WASM and apply crosshair
+        syncAllToWasm(settings);
+        updateCrosshair();
+        setInterval(poll, 100);
+    </script>
+</body>
+</html>
