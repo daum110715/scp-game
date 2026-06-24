@@ -2,7 +2,10 @@
 <html lang="zh-CN">
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <title>SCP：收容协议</title>
     <style>
         /* ── Theme ──────────────────────────────────────────────────────── */
@@ -91,6 +94,8 @@
         .hud-score-panel { text-align: right; padding: 8px 14px; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: var(--radius-sm); backdrop-filter: blur(8px); }
         .hud-settings-btn { pointer-events: auto; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: var(--radius-sm); backdrop-filter: blur(8px); color: var(--color-text-muted); font-size: 1rem; cursor: none; transition: all 0.2s ease; }
         .hud-settings-btn:hover { color: var(--color-primary); border-color: rgba(77, 184, 255, 0.3); background: rgba(77, 184, 255, 0.08); }
+        .hud-eve-badge { padding: 4px 10px; background: rgba(255, 77, 77, 0.15); border: 1px solid rgba(255, 77, 77, 0.4); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 0.6rem; font-weight: 700; letter-spacing: 0.2em; color: var(--color-danger); text-transform: uppercase; text-shadow: 0 0 8px rgba(255, 77, 77, 0.4); animation: evePulse 2s ease-in-out infinite; }
+        @keyframes evePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
         .hud-score-label { font-size: 0.55rem; font-weight: 600; letter-spacing: 0.1em; color: var(--color-text-muted); text-transform: uppercase; }
         .hud-score { font-family: var(--font-mono); font-size: clamp(1rem, 2.5vw, 1.4rem); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--color-success); text-shadow: 0 0 12px rgba(80, 250, 123, 0.3); line-height: 1.2; }
         .hud-high-score { font-family: var(--font-mono); font-size: 0.6rem; font-variant-numeric: tabular-nums; color: var(--color-gold); opacity: 0.6; margin-top: 2px; }
@@ -210,6 +215,121 @@
         .crosshair-left { left: 0; top: 50%; width: 6px; height: 1.5px; transform: translateY(-50%); }
         .crosshair-right { right: 0; top: 50%; width: 6px; height: 1.5px; transform: translateY(-50%); }
         .crosshair-dot { position: absolute; top: 50%; left: 50%; width: 2.5px; height: 2.5px; background: #00ff88; border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 4px #00ff88; }
+
+        /* ── Mobile / Touch Controls ─────────────────────────────────────── */
+        * { -webkit-tap-highlight-color: transparent; }
+        html, body { touch-action: none; overscroll-behavior: none; -webkit-touch-callout: none; }
+        #game-container { touch-action: none; }
+
+        /* Virtual Joystick */
+        #joystick-zone {
+            position: absolute; bottom: 0; left: 0; width: 40%; height: 55%;
+            z-index: 50; touch-action: none; display: flex;
+        }
+        #joystick-base {
+            position: absolute; width: 120px; height: 120px; border-radius: 50%;
+            background: rgba(255, 255, 255, 0.06); border: 2px solid rgba(255, 255, 255, 0.12);
+            transform: translate(-50%, -50%); pointer-events: none;
+            transition: opacity 0.15s ease; opacity: 0;
+        }
+        #joystick-knob {
+            position: absolute; width: 52px; height: 52px; border-radius: 50%;
+            background: rgba(77, 184, 255, 0.25); border: 2px solid rgba(77, 184, 255, 0.5);
+            transform: translate(-50%, -50%); pointer-events: none;
+            box-shadow: 0 0 12px rgba(77, 184, 255, 0.2);
+            transition: opacity 0.15s ease; opacity: 0;
+        }
+
+        /* Aim zone (right side of screen) */
+        #aim-zone {
+            position: absolute; bottom: 0; right: 0; width: 60%; height: 100%;
+            z-index: 45; touch-action: none; display: flex;
+        }
+
+        /* Action buttons */
+        #mobile-buttons {
+            position: absolute; bottom: 20px; right: 16px;
+            z-index: 55; display: flex; gap: 10px;
+            flex-direction: column; align-items: flex-end; pointer-events: none;
+        }
+        .mobile-btn {
+            pointer-events: auto; display: flex; align-items: center; justify-content: center;
+            width: 64px; height: 64px; border-radius: 50%;
+            background: rgba(255, 255, 255, 0.08); border: 2px solid rgba(255, 255, 255, 0.15);
+            color: rgba(200, 215, 240, 0.7); font-size: 0.65rem; font-weight: 700;
+            font-family: var(--font-ui); text-transform: uppercase; letter-spacing: 0.05em;
+            transition: all 0.15s ease; user-select: none; -webkit-user-select: none;
+            touch-action: none;
+        }
+        .mobile-btn:active, .mobile-btn.pressed {
+            background: rgba(77, 184, 255, 0.2); border-color: rgba(77, 184, 255, 0.5);
+            color: var(--color-primary); transform: scale(0.92);
+        }
+        .mobile-btn.reload-btn { width: 52px; height: 52px; font-size: 0.55rem; }
+        .mobile-btn.slide-btn { width: 52px; height: 52px; font-size: 0.55rem; }
+        .btn-row { display: flex; gap: 10px; }
+
+        /* Pause button (top-right) */
+        #mobile-pause-btn {
+            position: absolute; top: 12px; right: 12px; z-index: 60;
+            width: 40px; height: 40px; border-radius: 8px; display: flex;
+            background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.1);
+            color: rgba(200, 215, 240, 0.6); font-size: 1.1rem;
+            align-items: center; justify-content: center;
+            backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+            touch-action: none; user-select: none; -webkit-user-select: none;
+            cursor: pointer;
+        }
+        #mobile-pause-btn:active { background: rgba(77, 184, 255, 0.15); }
+
+        /* Fullscreen button */
+        #fullscreen-btn {
+            position: absolute; top: 12px; left: 12px; z-index: 60;
+            width: 40px; height: 40px; border-radius: 8px; display: none;
+            background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.1);
+            color: rgba(200, 215, 240, 0.6); font-size: 0.9rem;
+            align-items: center; justify-content: center;
+            backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+            touch-action: none; user-select: none; -webkit-user-select: none;
+        }
+        #fullscreen-btn:active { background: rgba(77, 184, 255, 0.15); }
+
+        /* Orientation warning */
+        #orientation-warning {
+            position: fixed; inset: 0; z-index: 10000;
+            background: rgba(4, 6, 16, 0.95); color: var(--color-text);
+            display: none; align-items: center; justify-content: center;
+            flex-direction: column; gap: 1rem; text-align: center; padding: 2rem;
+        }
+        #orientation-warning .icon { font-size: 2.5rem; }
+        #orientation-warning .msg { font-size: 1rem; color: var(--color-text-muted); }
+
+        /* Mobile-specific HUD adjustments */
+        @media (hover: none) and (pointer: coarse) {
+            #crosshair { display: none !important; }
+            body, body * { cursor: auto !important; }
+            .hud-settings-btn { width: 40px; height: 40px; }
+            .kill-feed { bottom: 140px; }
+            .hud-bar { top: 10px; left: 10px; right: 10px; }
+            .hud-vitals { min-width: 120px; padding: 6px 10px; }
+            .hud-ammo { padding: 6px 10px; }
+            .start-card, .pause-card, .gameover-card, .settings-card {
+                min-width: 0; width: 90vw; max-width: 360px; padding: 2rem 1.5rem;
+            }
+            .settings-card { max-height: 85vh; }
+            .controls-panel { display: none; }
+            .btn { padding: 0.8em 2em; font-size: 0.9rem; }
+            .game-title { font-size: 2rem; }
+            #fullscreen-btn { display: flex !important; }
+        }
+
+        /* Small phone adjustments */
+        @media (max-height: 600px) and (hover: none) {
+            .mobile-btn { width: 56px; height: 56px; }
+            .mobile-btn.reload-btn, .mobile-btn.slide-btn { width: 46px; height: 46px; }
+            #joystick-base { width: 100px; height: 100px; }
+            #joystick-knob { width: 44px; height: 44px; }
+        }
     </style>
     <link data-trunk rel="rust" data-wasm-opt="z" data-type="main" />
 </head>
@@ -224,6 +344,36 @@
             <div class="crosshair-line crosshair-left"></div>
             <div class="crosshair-line crosshair-right"></div>
             <div class="crosshair-dot"></div>
+        </div>
+
+        <!-- Mobile: Virtual joystick (left side) -->
+        <div id="joystick-zone">
+            <div id="joystick-base"></div>
+            <div id="joystick-knob"></div>
+        </div>
+
+        <!-- Mobile: Aim zone (right side — invisible, captures touch) -->
+        <div id="aim-zone"></div>
+
+        <!-- Mobile: Action buttons (right side) -->
+        <div id="mobile-buttons">
+            <div class="btn-row">
+                <div class="mobile-btn reload-btn" id="btn-reload">R</div>
+                <div class="mobile-btn slide-btn" id="btn-slide">S</div>
+            </div>
+            <div class="mobile-btn" id="btn-jump">Jump</div>
+        </div>
+
+        <!-- Mobile: Pause button -->
+        <div id="mobile-pause-btn">⏸</div>
+
+        <!-- Mobile: Fullscreen button -->
+        <div id="fullscreen-btn">⛶</div>
+
+        <!-- Orientation warning (portrait on mobile) -->
+        <div id="orientation-warning">
+            <div class="icon">📱↔️</div>
+            <div class="msg">Please rotate your device to landscape for the best experience.</div>
         </div>
     </div>
 
@@ -390,7 +540,7 @@
         var DEFAULTS = {
             master_volume: 0.8, sfx_volume: 0.8, music_volume: 0.6,
             screen_shake: true, show_fps: false,
-            difficulty: 1, aim_assist: false,
+            difficulty: 1, aim_assist: false, eve_mode: false,
             crosshair_color: '0,1,0.53', crosshair_size: 1.0
         };
 
@@ -462,6 +612,7 @@
             var shakeOn = settings.screen_shake !== false;
             var fpsOn = settings.show_fps === true;
             var aimOn = settings.aim_assist === true;
+            var eveOn = settings.eve_mode === true;
             var colors = [[0,1,0.53,'绿色'],[0,0.73,1,'青色'],[1,0.3,0.3,'红色'],[1,1,1,'白色'],[1,0.85,0,'金色']];
             var curColor = String(settings.crosshair_color || '0,1,0.53');
             var sz = parseFloat(settings.crosshair_size) || 1.0;
@@ -501,6 +652,7 @@
 
                 // Gameplay tab
                 '<div class="tab-content" id="tab-gameplay">' +
+                '<div class="setting-row"><div><div class="setting-label">EVE 模式</div><div class="setting-desc">AI 对战 AI — 观战模式</div></div><div class="toggle' + (eveOn ? ' on' : '') + '" data-key="eve_mode"></div></div>' +
                 '<div class="setting-row"><div><div class="setting-label">难度</div><div class="setting-desc">敌人精准度与攻击性</div></div><div class="diff-group">' +
                 '<button class="diff-btn' + (diff===0?' active':'') + '" data-diff="0">简单</button>' +
                 '<button class="diff-btn' + (diff===1?' active':'') + '" data-diff="1">普通</button>' +
@@ -519,12 +671,12 @@
                 '<div class="tab-content" id="tab-controls">' +
                 '<div class="controls-panel" style="margin-top:0">' +
                 '<div class="controls-grid">' +
-                '<div class="keys"><kbd>A</kbd><kbd>D</kbd></div><span class="control-label">移动</span>' +
-                '<div class="keys"><kbd>W</kbd><kbd>空格</kbd></div><span class="control-label">跳跃</span>' +
-                '<div class="keys"><kbd>S</kbd></div><span class="control-label">滑铲</span>' +
-                '<div class="keys"><kbd>鼠标</kbd></div><span class="control-label">瞄准</span>' +
-                '<div class="keys"><kbd>左键</kbd><kbd>J</kbd></div><span class="control-label">射击</span>' +
-                '<div class="keys"><kbd>R</kbd></div><span class="control-label">装填</span>' +
+                '<div class="keys"><kbd>◀</kbd><kbd>▶</kbd></div><span class="control-label">摇杆（左侧）</span>' +
+                '<div class="keys"><kbd>瞄准</kbd></div><span class="control-label">右侧：瞄准 + 射击</span>' +
+                '<div class="keys"><kbd>跳跃</kbd></div><span class="control-label">点击按钮</span>' +
+                '<div class="keys"><kbd>R</kbd><kbd>S</kbd></div><span class="control-label">装填 / 滑铲</span>' +
+                '<div class="keys"><kbd>A</kbd><kbd>D</kbd></div><span class="control-label">键盘移动</span>' +
+                '<div class="keys"><kbd>鼠标</kbd></div><span class="control-label">键盘瞄准</span>' +
                 '<div class="keys"><kbd>Esc</kbd></div><span class="control-label">暂停</span>' +
                 '</div></div>' +
                 '</div>' +
@@ -532,7 +684,7 @@
                 '</div></div></div>';
         }
 
-        function render(state, score, lives, high, ammo, maxAmmo, reloading, health, maxHealth, armor, maxArmor) {
+        function render(state, score, lives, high, ammo, maxAmmo, reloading, health, maxHealth, armor, maxArmor, eveMode) {
             var html = '';
             if (showingSettings) {
                 html = renderSettingsPanel();
@@ -549,12 +701,12 @@
                     '<div class="controls-panel">' +
                     '<div class="controls-title">操作说明</div>' +
                     '<div class="controls-grid">' +
-                    '<div class="keys"><kbd>A</kbd><kbd>D</kbd></div><span class="control-label">移动</span>' +
-                    '<div class="keys"><kbd>W</kbd><kbd>空格</kbd></div><span class="control-label">跳跃</span>' +
-                    '<div class="keys"><kbd>S</kbd></div><span class="control-label">滑铲</span>' +
-                    '<div class="keys"><kbd>鼠标</kbd></div><span class="control-label">瞄准</span>' +
-                    '<div class="keys"><kbd>左键</kbd><kbd>J</kbd></div><span class="control-label">射击</span>' +
-                    '<div class="keys"><kbd>R</kbd></div><span class="control-label">装填</span>' +
+                    '<div class="keys"><kbd>◀</kbd><kbd>▶</kbd></div><span class="control-label">摇杆（左侧）</span>' +
+                    '<div class="keys"><kbd>瞄准</kbd></div><span class="control-label">右侧：瞄准 + 射击</span>' +
+                    '<div class="keys"><kbd>跳跃</kbd></div><span class="control-label">点击按钮</span>' +
+                    '<div class="keys"><kbd>R</kbd><kbd>S</kbd></div><span class="control-label">装填 / 滑铲</span>' +
+                    '<div class="keys"><kbd>A</kbd><kbd>D</kbd></div><span class="control-label">键盘移动</span>' +
+                    '<div class="keys"><kbd>鼠标</kbd></div><span class="control-label">键盘瞄准</span>' +
                     '</div></div></div></div>';
             } else if (state === 1) {
                 var healthPct = maxHealth > 0 ? Math.round(health / maxHealth * 100) : 0;
@@ -567,7 +719,9 @@
                     '<div class="vital-bar"><span class="vital-label health">血量</span><div class="vital-track"><div class="vital-fill health" id="hud-health-fill" style="width:' + healthPct + '%"></div></div><span class="vital-value health" id="hud-health-val">' + health + '</span></div>' +
                     '<div class="vital-bar"><span class="vital-label armor">护甲</span><div class="vital-track"><div class="vital-fill armor" id="hud-armor-fill" style="width:' + armorPct + '%"></div></div><span class="vital-value armor" id="hud-armor-val">' + armor + '</span></div>' +
                     '</div>' +
-                    '<div class="hud-center"><div class="hud-ammo ' + ammoClass + '" id="hud-ammo-wrap"><div class="ammo-icon">&#x2B21;</div><div class="ammo-text" id="hud-ammo-text">' + ammoText + '</div></div></div>' +
+                    '<div class="hud-center"><div class="hud-ammo ' + ammoClass + '" id="hud-ammo-wrap"><div class="ammo-icon">&#x2B21;</div><div class="ammo-text" id="hud-ammo-text">' + ammoText + '</div></div>' +
+                    (eveMode ? '<div class="hud-eve-badge">EVE</div>' : '') +
+                    '</div>' +
                     '<div class="hud-right">' +
                     '<div class="hud-score-panel">' +
                     '<div class="hud-score-label">分数</div>' +
@@ -751,9 +905,13 @@
             // Don't handle game clicks when settings are open
             if (showingSettings) return;
             var state = callWasm('get_game_state', 0);
-            if (state === 0) callWasm('start_game');
-            else if (state === 2) callWasm('restart_game');
-            else if (state === 3) callWasm('resume_game');
+            if (state === 0) {
+                callWasm('start_game');
+            } else if (state === 2) {
+                callWasm('restart_game');
+            } else if (state === 3) {
+                callWasm('resume_game');
+            }
         });
 
         // Prevent double-click from selecting text or triggering browser defaults
@@ -909,11 +1067,12 @@
             var maxHealth = callWasm('get_max_health', 100);
             var armor = callWasm('get_armor', 50);
             var maxArmor = callWasm('get_max_armor', 50);
+            var eveMode = callWasm('get_eve_mode', false);
 
             // Settings panel: render once when opened, then leave it alone
             if (showingSettings) {
                 if (!settingsRendered) {
-                    render(state, score, lives, high, ammo, maxAmmo, reloading, health, maxHealth, armor, maxArmor);
+                    render(state, score, lives, high, ammo, maxAmmo, reloading, health, maxHealth, armor, maxArmor, eveMode);
                     settingsRendered = true;
                 }
                 return;
@@ -921,7 +1080,7 @@
 
             // Full re-render only on state transitions
             if (state !== prevState) {
-                render(state, score, lives, high, ammo, maxAmmo, reloading, health, maxHealth, armor, maxArmor);
+                render(state, score, lives, high, ammo, maxAmmo, reloading, health, maxHealth, armor, maxArmor, eveMode);
                 prevState = state;
                 prevScore = score; prevLives = lives; prevHigh = high;
                 prevAmmo = ammo; prevMaxAmmo = maxAmmo; prevReloading = reloading;
@@ -941,12 +1100,332 @@
             if (state === 1) {
                 updateKillFeed();
             }
+
+            // Always hide default cursor and show crosshair
+            crosshair.style.display = '';
+            document.body.style.cursor = 'none';
+            overlay.style.cursor = 'none';
         }
 
         // Init: sync loaded settings to WASM and apply crosshair
         syncAllToWasm(settings);
         updateCrosshair();
         setInterval(poll, 100);
+
+        // ═══════════════════════════════════════════════════════════════════
+        // ── Mobile / Touch Controls ─────────────────────────────────────
+        // ═══════════════════════════════════════════════════════════════════
+
+        (function() {
+            var isMobile = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+
+            var joystickZone = document.getElementById('joystick-zone');
+            var joystickBase = document.getElementById('joystick-base');
+            var joystickKnob = document.getElementById('joystick-knob');
+            var aimZone = document.getElementById('aim-zone');
+            var btnJump = document.getElementById('btn-jump');
+            var btnReload = document.getElementById('btn-reload');
+            var btnSlide = document.getElementById('btn-slide');
+            var mobilePause = document.getElementById('mobile-pause-btn');
+            var fullscreenBtn = document.getElementById('fullscreen-btn');
+            var orientWarn = document.getElementById('orientation-warning');
+
+            // ── Joystick state ──
+            var joystickTouchId = null;
+            var joystickCenterX = 0, joystickCenterY = 0;
+            var JOYSTICK_RADIUS = 50;
+
+            // ── Aim state ──
+            var aimTouchId = null;
+            var isAiming = false;
+            var aimInterval = null;
+
+            // ── Fullscreen ──
+            function requestFS() {
+                var el = document.documentElement;
+                if (el.requestFullscreen) el.requestFullscreen();
+                else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+                else if (el.webkitEnterFullscreen) el.webkitEnterFullscreen();
+            }
+
+            if (fullscreenBtn) {
+                fullscreenBtn.addEventListener('touchstart', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    requestFS();
+                }, {passive: false});
+            }
+
+            // ── Orientation check ──
+            function checkOrientation() {
+                if (!orientWarn) return;
+                var isPortrait = window.innerHeight > window.innerWidth;
+                var isSmallScreen = Math.max(window.innerWidth, window.innerHeight) < 900;
+                orientWarn.style.display = (isPortrait && isSmallScreen) ? 'flex' : 'none';
+            }
+            window.addEventListener('orientationchange', function() { setTimeout(checkOrientation, 200); });
+            window.addEventListener('resize', checkOrientation);
+            checkOrientation();
+
+            // ── Pause button ──
+            if (mobilePause) {
+                mobilePause.addEventListener('touchstart', function(e) {
+                    e.preventDefault(); e.stopPropagation();
+                    SoundEngine.resume();
+                    var state = callWasm('get_game_state', 0);
+                    if (state === 1) callWasm('pause_game');
+                    else if (state === 3) callWasm('resume_game');
+                }, {passive: false});
+            }
+
+            // ── Jump button ──
+            if (btnJump) {
+                var jumpStart = function(e) {
+                    e.preventDefault(); e.stopPropagation();
+                    btnJump.classList.add('pressed');
+                    try { wasm().set_touch_jump(true); } catch(ex) {}
+                };
+                var jumpEnd = function(e) {
+                    if (e) { e.preventDefault(); e.stopPropagation(); }
+                    btnJump.classList.remove('pressed');
+                    try { wasm().set_touch_jump(false); } catch(ex) {}
+                };
+                btnJump.addEventListener('touchstart', jumpStart, {passive: false});
+                btnJump.addEventListener('touchend', jumpEnd, {passive: false});
+                btnJump.addEventListener('touchcancel', jumpEnd);
+                btnJump.addEventListener('mousedown', jumpStart);
+                document.addEventListener('mouseup', function() {
+                    if (btnJump.classList.contains('pressed')) jumpEnd(null);
+                });
+            }
+
+            // ── Reload button ──
+            if (btnReload) {
+                var reloadAction = function(e) {
+                    e.preventDefault(); e.stopPropagation();
+                    btnReload.classList.add('pressed');
+                    try { wasm().set_touch_reload(); } catch(ex) {}
+                    setTimeout(function() { btnReload.classList.remove('pressed'); }, 200);
+                };
+                btnReload.addEventListener('touchstart', reloadAction, {passive: false});
+                btnReload.addEventListener('mousedown', reloadAction);
+            }
+
+            // ── Slide button ──
+            if (btnSlide) {
+                var slideStart = function(e) {
+                    e.preventDefault(); e.stopPropagation();
+                    btnSlide.classList.add('pressed');
+                    try { wasm().set_touch_slide(true); } catch(ex) {}
+                };
+                var slideEnd = function(e) {
+                    if (e) { e.preventDefault(); e.stopPropagation(); }
+                    btnSlide.classList.remove('pressed');
+                    try { wasm().set_touch_slide(false); } catch(ex) {}
+                };
+                btnSlide.addEventListener('touchstart', slideStart, {passive: false});
+                btnSlide.addEventListener('touchend', slideEnd, {passive: false});
+                btnSlide.addEventListener('touchcancel', slideEnd);
+                btnSlide.addEventListener('mousedown', slideStart);
+                document.addEventListener('mouseup', function() {
+                    if (btnSlide.classList.contains('pressed')) slideEnd(null);
+                });
+            }
+
+            // ── Joystick: show at bottom-left by default ──
+            var DEFAULT_JOY_X = 90;
+            var DEFAULT_JOY_Y = window.innerHeight - 110;
+            joystickBase.style.left = DEFAULT_JOY_X + 'px';
+            joystickBase.style.top = DEFAULT_JOY_Y + 'px';
+            joystickBase.style.opacity = '0.5';
+            joystickKnob.style.left = DEFAULT_JOY_X + 'px';
+            joystickKnob.style.top = DEFAULT_JOY_Y + 'px';
+            joystickKnob.style.opacity = '0.5';
+
+            // ── Joystick touch handling ──
+            joystickZone.addEventListener('touchstart', function(e) {
+                e.preventDefault(); e.stopPropagation();
+                SoundEngine.resume();
+                if (joystickTouchId !== null) return;
+                var t = e.changedTouches[0];
+                joystickTouchId = t.identifier;
+                joystickCenterX = t.clientX;
+                joystickCenterY = t.clientY;
+                joystickBase.style.left = joystickCenterX + 'px';
+                joystickBase.style.top = joystickCenterY + 'px';
+                joystickBase.style.opacity = '1';
+                joystickKnob.style.left = joystickCenterX + 'px';
+                joystickKnob.style.top = joystickCenterY + 'px';
+                joystickKnob.style.opacity = '1';
+            }, {passive: false});
+
+            joystickZone.addEventListener('touchmove', function(e) {
+                e.preventDefault(); e.stopPropagation();
+                for (var i = 0; i < e.changedTouches.length; i++) {
+                    var t = e.changedTouches[i];
+                    if (t.identifier !== joystickTouchId) continue;
+                    var dx = t.clientX - joystickCenterX;
+                    var dy = t.clientY - joystickCenterY;
+                    var dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist > JOYSTICK_RADIUS) {
+                        dx = dx / dist * JOYSTICK_RADIUS;
+                        dy = dy / dist * JOYSTICK_RADIUS;
+                    }
+                    joystickKnob.style.left = (joystickCenterX + dx) + 'px';
+                    joystickKnob.style.top = (joystickCenterY + dy) + 'px';
+                    var normDx = dx / JOYSTICK_RADIUS;
+                    try { wasm().set_touch_move(normDx); } catch(ex) {}
+                }
+            }, {passive: false});
+
+            var joystickEnd = function(e) {
+                for (var i = 0; i < e.changedTouches.length; i++) {
+                    if (e.changedTouches[i].identifier !== joystickTouchId) continue;
+                    joystickTouchId = null;
+                    joystickBase.style.left = DEFAULT_JOY_X + 'px';
+                    joystickBase.style.top = DEFAULT_JOY_Y + 'px';
+                    joystickBase.style.opacity = '0.5';
+                    joystickKnob.style.left = DEFAULT_JOY_X + 'px';
+                    joystickKnob.style.top = DEFAULT_JOY_Y + 'px';
+                    joystickKnob.style.opacity = '0.5';
+                    try { wasm().set_touch_move(0); } catch(ex) {}
+                }
+            };
+            joystickZone.addEventListener('touchend', joystickEnd, {passive: false});
+            joystickZone.addEventListener('touchcancel', joystickEnd);
+
+            // ── Joystick mouse handling (desktop) ──
+            var joystickMouseDown = false;
+            joystickZone.addEventListener('mousedown', function(e) {
+                e.preventDefault(); e.stopPropagation();
+                SoundEngine.resume();
+                joystickMouseDown = true;
+                joystickCenterX = e.clientX;
+                joystickCenterY = e.clientY;
+                joystickBase.style.left = joystickCenterX + 'px';
+                joystickBase.style.top = joystickCenterY + 'px';
+                joystickBase.style.opacity = '1';
+                joystickKnob.style.left = joystickCenterX + 'px';
+                joystickKnob.style.top = joystickCenterY + 'px';
+                joystickKnob.style.opacity = '1';
+            });
+            document.addEventListener('mousemove', function(e) {
+                if (!joystickMouseDown) return;
+                var dx = e.clientX - joystickCenterX;
+                var dy = e.clientY - joystickCenterY;
+                var dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist > JOYSTICK_RADIUS) {
+                    dx = dx / dist * JOYSTICK_RADIUS;
+                    dy = dy / dist * JOYSTICK_RADIUS;
+                }
+                joystickKnob.style.left = (joystickCenterX + dx) + 'px';
+                joystickKnob.style.top = (joystickCenterY + dy) + 'px';
+                var normDx = dx / JOYSTICK_RADIUS;
+                try { wasm().set_touch_move(normDx); } catch(ex) {}
+            });
+            document.addEventListener('mouseup', function(e) {
+                if (!joystickMouseDown) return;
+                joystickMouseDown = false;
+                joystickBase.style.left = DEFAULT_JOY_X + 'px';
+                joystickBase.style.top = DEFAULT_JOY_Y + 'px';
+                joystickBase.style.opacity = '0.5';
+                joystickKnob.style.left = DEFAULT_JOY_X + 'px';
+                joystickKnob.style.top = DEFAULT_JOY_Y + 'px';
+                joystickKnob.style.opacity = '0.5';
+                try { wasm().set_touch_move(0); } catch(ex) {}
+            });
+
+            // ── Aim zone touch handling (right side — aim + shoot) ──
+            aimZone.addEventListener('touchstart', function(e) {
+                e.preventDefault(); e.stopPropagation();
+                SoundEngine.resume();
+                if (aimTouchId !== null) return;
+                var t = e.changedTouches[0];
+                aimTouchId = t.identifier;
+                isAiming = true;
+                var canvas = document.getElementById('game-canvas');
+                var rect = canvas.getBoundingClientRect();
+                var sx = t.clientX - rect.left;
+                var sy = t.clientY - rect.top;
+                try {
+                    wasm().set_touch_aim(sx, sy);
+                    wasm().set_touch_shoot(true);
+                } catch(ex) {}
+                if (aimInterval) clearInterval(aimInterval);
+                aimInterval = null;
+            }, {passive: false});
+
+            aimZone.addEventListener('touchmove', function(e) {
+                e.preventDefault(); e.stopPropagation();
+                for (var i = 0; i < e.changedTouches.length; i++) {
+                    var t = e.changedTouches[i];
+                    if (t.identifier !== aimTouchId) continue;
+                    var canvas = document.getElementById('game-canvas');
+                    var rect = canvas.getBoundingClientRect();
+                    var sx = t.clientX - rect.left;
+                    var sy = t.clientY - rect.top;
+                    try { wasm().set_touch_aim(sx, sy); } catch(ex) {}
+                }
+            }, {passive: false});
+
+            var aimEnd = function(e) {
+                for (var i = 0; i < e.changedTouches.length; i++) {
+                    if (e.changedTouches[i].identifier !== aimTouchId) continue;
+                    aimTouchId = null;
+                    isAiming = false;
+                    if (aimInterval) { clearInterval(aimInterval); aimInterval = null; }
+                    try { wasm().set_touch_shoot(false); } catch(ex) {}
+                }
+            };
+            aimZone.addEventListener('touchend', aimEnd, {passive: false});
+            aimZone.addEventListener('touchcancel', aimEnd);
+
+            // ── Aim zone mouse handling (desktop) ──
+            var aimMouseDown = false;
+            aimZone.addEventListener('mousedown', function(e) {
+                e.preventDefault(); e.stopPropagation();
+                SoundEngine.resume();
+                aimMouseDown = true;
+                var canvas = document.getElementById('game-canvas');
+                var rect = canvas.getBoundingClientRect();
+                var sx = e.clientX - rect.left;
+                var sy = e.clientY - rect.top;
+                try {
+                    wasm().set_touch_aim(sx, sy);
+                    wasm().set_touch_shoot(true);
+                } catch(ex) {}
+            });
+            document.addEventListener('mousemove', function(e) {
+                if (!aimMouseDown) return;
+                var canvas = document.getElementById('game-canvas');
+                var rect = canvas.getBoundingClientRect();
+                var sx = e.clientX - rect.left;
+                var sy = e.clientY - rect.top;
+                try { wasm().set_touch_aim(sx, sy); } catch(ex) {}
+            });
+            document.addEventListener('mouseup', function(e) {
+                if (!aimMouseDown) return;
+                aimMouseDown = false;
+                try { wasm().set_touch_shoot(false); } catch(ex) {}
+            });
+
+            // ── Overlay touch for menu screens ──
+            overlay.addEventListener('touchstart', function(e) {
+                SoundEngine.resume();
+                // Only handle touch on menu screens (state 0, 2, 3)
+                var state = callWasm('get_game_state', 0);
+                if (state === 0) {
+                    if (!showingSettings) { callWasm('start_game'); try { wasm().set_touch_start(); } catch(ex) {} }
+                } else if (state === 2) {
+                    if (!showingSettings) callWasm('restart_game');
+                }
+            }, {passive: true});
+
+            // Prevent all default touch behavior on game container
+            document.getElementById('game-container').addEventListener('touchmove', function(e) {
+                e.preventDefault();
+            }, {passive: false});
+        })();
     </script>
 </body>
 </html>

@@ -10,14 +10,16 @@ use crate::{rand, rand_range, PLAYER_SIZE, PLAYER_SPEED, JUMP_FORCE, BULLET_SPEE
     SCOUT_SPEED_MIN, SCOUT_SPEED_MAX, GRUNT_SPEED_MIN, GRUNT_SPEED_MAX,
     TANK_SPEED_MIN, TANK_SPEED_MAX, FLANKER_SPEED_MIN, FLANKER_SPEED_MAX,
     SCOUT_HP, GRUNT_HP, TANK_HP, FLANKER_HP, DODGE_RANGE, DODGE_COOLDOWN,
-    RELOAD_TIME, ENEMY_MAX_AMMO, ENEMY_RELOAD_TIME, TANK_MAX_AMMO, TANK_RELOAD_TIME};
+    RELOAD_TIME, ENEMY_MAX_AMMO, ENEMY_RELOAD_TIME, TANK_MAX_AMMO, TANK_RELOAD_TIME,
+    EVE_SPAWN_INTERVAL, EVE_MAX_ENEMIES};
 
 struct HitEvent { x: f32, y: f32, shake: f32, score: i32, hit_player: bool }
 
 // ── AABB Helpers ─────────────────────────────────────────────────────────────
 
 /// Test overlap between two axis-aligned rectangles defined by center (cx, cy) and half-size (hw, hh).
-fn aabb_overlap(ax: f32, ay: f32, aw: f32, ah: f32, bx: f32, by: f32, bw: f32, bh: f32) -> bool {
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn aabb_overlap(ax: f32, ay: f32, aw: f32, ah: f32, bx: f32, by: f32, bw: f32, bh: f32) -> bool {
     (ax - bx).abs() < (aw + bw) * 0.5 && (ay - by).abs() < (ah + bh) * 0.5
 }
 
@@ -441,6 +443,7 @@ pub fn player_move_system(world: &mut World, dt: f32) {
     let slide = input.slide_down;
     let mouse_pos = input.mouse_pos;
     let reload_pressed = input.reload_pressed;
+    let move_x = input.move_x;
 
     // Get camera and viewport info for coordinate conversion
     let camera_x = world.get_resource::<CameraRes>().unwrap().camera_x;
@@ -525,6 +528,9 @@ pub fn player_move_system(world: &mut World, dt: f32) {
         if is_sliding {
             // Slide in facing direction
             vx = if facing_right { speed } else { -speed };
+        } else if move_x.abs() > 0.01 {
+            // Analog joystick input (mobile)
+            vx = move_x * speed;
         } else {
             if left { vx = -speed; }
             if right { vx = speed; }
@@ -684,17 +690,223 @@ pub fn player_shoot_system(world: &mut World, _dt: f32) {
     crate::play_sound_js("shoot");
 }
 
+// ── Player AI (EVE Mode) ─────────────────────────────────────────────────────
+
+/// AI system that controls the player character in EVE mode.
+/// Tactical style: stays at long range, aims carefully, then fires.
+/// When swarmed by many enemies, enters a retreat mode — flees from the
+/// enemy mass while laying down continuous fire at the nearest target.
+pub fn player_ai_system(world: &mut World, _dt: f32) {
+    // Collect player info
+    let player_info = QuerySingle::<Player>::new(world)
+        .and_then(|q| q.iter().next().map(|(e, _)| e))
+        .and_then(|e| {
+            let pos = world.get_component::<Transform2D>(e).map(|t| (t.position.x, t.position.y));
+            let vel = world.get_component::<Velocity>(e).map(|v| (v.x, v.y));
+            let p = world.get_component::<Player>(e);
+            pos.zip(vel).zip(p).map(|(((px, py), (vx, vy)), p)| {
+                (px, py, vx, vy, p.on_ground, p.shoot_timer, p.ammo, p.reloading, p.aim_angle)
+            })
+        });
+
+    let (px, py, _pvx, _pvy, on_ground, shoot_timer, ammo, reloading, prev_aim) = match player_info {
+        Some(info) => info,
+        None => return,
+    };
+
+    // Collect enemy data
+    let enemies: Vec<(f32, f32, f32, f32, f32, bool)> = QuerySingle::<Enemy>::new(world)
+        .map(|q| q.iter()
+            .filter(|(_, en)| en.alive)
+            .map(|(e, en)| {
+                let pos = world.get_component::<Transform2D>(e)
+                    .map(|t| (t.position.x, t.position.y))
+                    .unwrap_or((0.0, 0.0));
+                let vel = world.get_component::<Velocity>(e)
+                    .map(|v| (v.x, v.y))
+                    .unwrap_or((0.0, 0.0));
+                (pos.0, pos.1, vel.0, vel.1, en.size, en.hp > 0)
+            })
+            .collect())
+        .unwrap_or_default();
+
+    if enemies.is_empty() {
+        // No enemies — stand still, don't shoot
+        let input = world.get_resource_mut::<InputState>().unwrap();
+        input.left = false;
+        input.right = false;
+        input.jump_pressed = false;
+        input.slide_down = false;
+        input.shoot_down = false;
+        input.mouse_shoot = false;
+        input.reload_pressed = false;
+        return;
+    }
+
+    // ── Find nearest enemy and count nearby threats ──
+    let player_cx = px + PLAYER_SIZE * 0.5;
+    let player_cy = py + PLAYER_SIZE * 0.5;
+
+    let swarm_radius = 400.0;   // radius to count threats for swarm detection
+    let swarm_threshold: usize = 4; // enemy count that triggers retreat mode
+
+    let mut nearest_dist = f32::MAX;
+    let mut nearest_idx = 0usize;
+    let mut nearby_count: usize = 0;
+    let mut sum_x = 0.0f32; // centroid accumulator for nearby enemies
+    let mut sum_y = 0.0f32;
+
+    for (i, &(ex, ey, _, _, size, _)) in enemies.iter().enumerate() {
+        let ecx = ex + size * 0.5;
+        let ecy = ey + size * 0.5;
+        let dx = ecx - player_cx;
+        let dy = ecy - player_cy;
+        let dist = (dx * dx + dy * dy).sqrt();
+        if dist < nearest_dist {
+            nearest_dist = dist;
+            nearest_idx = i;
+        }
+        if dist < swarm_radius {
+            nearby_count += 1;
+            sum_x += ecx;
+            sum_y += ecy;
+        }
+    }
+
+    let is_swarmed = nearby_count >= swarm_threshold;
+
+    let (ex, ey, evx, evy, esize, _) = enemies[nearest_idx];
+    let enemy_cx = ex + esize * 0.5;
+    let enemy_cy = ey + esize * 0.5;
+    let dx = enemy_cx - player_cx;
+
+    // Predictive aiming — lead the target
+    let pred_time = nearest_dist / BULLET_SPEED;
+    let aim_x = enemy_cx + evx * pred_time * 0.8;
+    let aim_y = enemy_cy + evy * pred_time * 0.8;
+
+    // Calculate aim angle to target
+    let desired_aim = (aim_y - player_cy).atan2(aim_x - player_cx);
+
+    // Check aim alignment — how close current aim is to desired aim
+    let aim_diff = (desired_aim - prev_aim).abs();
+    let aim_diff = if aim_diff > std::f32::consts::PI {
+        std::f32::consts::TAU - aim_diff
+    } else {
+        aim_diff
+    };
+
+    // Wider aim tolerance when swarmed — fire more freely while retreating
+    let aim_tolerance = if is_swarmed { 0.35 } else { 0.15 };
+    let aim_aligned = aim_diff < aim_tolerance;
+
+    // ── Tactical Movement ──
+    let danger_range = 250.0;
+    let max_range = 600.0;
+
+    let too_close = nearest_dist < danger_range;
+    let in_optimal = nearest_dist >= danger_range && nearest_dist <= max_range;
+    let too_far = nearest_dist > max_range;
+
+    let (mut move_left, mut move_right) = (false, false);
+    let should_jump;
+
+    if is_swarmed {
+        // ── Swarm Retreat Mode ──
+        // Compute retreat direction: flee from the centroid of nearby enemies.
+        // If the centroid is roughly at the player, pick a fallback direction
+        // toward the nearest level edge (more defensible position).
+        let centroid_dx = (sum_x / nearby_count as f32) - player_cx;
+        let centroid_dy = (sum_y / nearby_count as f32) - player_cy;
+        let centroid_dist = (centroid_dx * centroid_dx + centroid_dy * centroid_dy).sqrt();
+
+        let retreat_dir_x = if centroid_dist > 10.0 {
+            // Flee from the enemy mass
+            -centroid_dx.signum()
+        } else {
+            // Enemies surround us evenly — retreat toward nearest level edge
+            let dist_to_left = px;
+            let dist_to_right = LEVEL_W - px;
+            if dist_to_left < dist_to_right { -1.0 } else { 1.0 }
+        };
+
+        // Move hard in the retreat direction, ignoring range checks
+        move_left = retreat_dir_x < 0.0;
+        move_right = retreat_dir_x > 0.0;
+
+        // Aggressive jumping to escape the swarm:
+        // jump if grounded and any enemy is close, or if an enemy is above,
+        // or randomly to be unpredictable. Always jump at level edges when
+        // enemies are close — try to leap over them.
+        let enemy_above = enemy_cy < player_cy - 30.0;
+        let close_threat = nearest_dist < swarm_radius * 0.6;
+        let at_edge = px < 80.0 || px > LEVEL_W - 80.0;
+        should_jump = on_ground
+            && (close_threat || enemy_above || (at_edge && nearest_dist < 300.0) || rand() < 0.08);
+    } else {
+        // ── Normal Tactical Movement ──
+        if too_close {
+            // Full retreat — move away from nearest enemy
+            move_left = dx > 0.0;
+            move_right = dx < 0.0;
+        } else if in_optimal {
+            // At good range — strafe to dodge, but keep facing enemy
+            if rand() < 0.4 {
+                move_left = rand() < 0.5;
+                move_right = !move_left;
+            }
+        } else if too_far {
+            // Slowly approach to get into optimal range
+            move_left = dx < -30.0;
+            move_right = dx > 30.0;
+        }
+
+        // Jump: to dodge close enemies or when blocked
+        let enemy_above = enemy_cy < player_cy - 40.0;
+        should_jump = on_ground && (too_close || enemy_above || rand() < 0.01);
+    }
+
+    // ── Shooting: fire when aim is aligned (or spray when swarmed and close) ──
+    let can_shoot = shoot_timer <= 0.0 && ammo > 0 && !reloading;
+    let in_range = nearest_dist < max_range;
+    let should_shoot = if is_swarmed {
+        // When swarmed, fire at any target in range — survival overrides precision
+        can_shoot && in_range && (aim_aligned || nearest_dist < danger_range)
+    } else {
+        can_shoot && in_range && aim_aligned
+    };
+
+    // Reload when ammo is low
+    let should_reload = ammo <= 8 && !reloading && ammo > 0;
+
+    // Write synthetic input
+    let input = world.get_resource_mut::<InputState>().unwrap();
+    input.left = move_left;
+    input.right = move_right;
+    input.jump_pressed = should_jump;
+    input.slide_down = false;
+    input.shoot_down = should_shoot;
+    input.mouse_shoot = false;
+    input.reload_pressed = should_reload;
+}
+
 // ── Enemy Spawn ──────────────────────────────────────────────────────────────
 
 pub fn enemy_spawn_system(world: &mut World, dt: f32) {
     let gs = world.get_resource::<GameStateRes>().unwrap();
     if gs.state != GameState::Playing { return; }
 
+    let is_eve = world.get_resource::<GameModeRes>()
+        .map(|g| g.mode == GameMode::EVE)
+        .unwrap_or(false);
+
     // Update difficulty
     {
         let diff = world.get_resource_mut::<DifficultyRes>().unwrap();
         diff.elapsed_time += dt;
-        diff.level = (diff.elapsed_time / 15.0).min(10.0) as i32;
+        // In EVE mode, ramp up difficulty much faster
+        let time_div = if is_eve { 5.0 } else { 15.0 };
+        diff.level = (diff.elapsed_time / time_div).min(10.0) as i32;
         diff.accuracy_mult = (0.6 + diff.level as f32 * 0.09).min(1.5);
         diff.reaction_mult = (1.2 - diff.level as f32 * 0.07).max(0.5);
     }
@@ -705,6 +917,10 @@ pub fn enemy_spawn_system(world: &mut World, dt: f32) {
         if spawn.difficulty_timer > 10.0 {
             spawn.difficulty_timer = 0.0;
             spawn.spawn_interval = (spawn.spawn_interval * 0.88).max(0.4);
+        }
+        // Override spawn interval in EVE mode
+        if is_eve && spawn.spawn_interval > EVE_SPAWN_INTERVAL {
+            spawn.spawn_interval = EVE_SPAWN_INTERVAL;
         }
         spawn.spawn_timer -= dt;
     }
@@ -718,18 +934,34 @@ pub fn enemy_spawn_system(world: &mut World, dt: f32) {
         spawn.spawn_timer = spawn.spawn_interval;
     }
 
+    let max_enemies = if is_eve { EVE_MAX_ENEMIES } else { MAX_ENEMIES };
+    // In EVE mode, spawn multiple enemies per tick to fill the battlefield faster
+    let spawn_batch = if is_eve { 2 } else { 1 };
+
+    for _ in 0..spawn_batch {
     let enemy_count = QuerySingle::<Enemy>::new(world)
         .map(|q| q.len())
         .unwrap_or(0);
-
-    if enemy_count < MAX_ENEMIES {
+    if enemy_count >= max_enemies { break; }
+    {
         let _camera_x = world.get_resource::<CameraRes>().unwrap().camera_x;
         let diff_level = world.get_resource::<DifficultyRes>().unwrap().level;
 
         // Select enemy type based on difficulty
         let (enemy_type, hp, speed_min, speed_max, shoot_min, shoot_max) = {
             let roll = rand();
-            if diff_level < 3 {
+            if is_eve {
+                // EVE mode: all enemy types from the start
+                if roll < 0.25 {
+                    (EnemyType::Scout, SCOUT_HP, SCOUT_SPEED_MIN, SCOUT_SPEED_MAX, 0.1, 0.4)
+                } else if roll < 0.45 {
+                    (EnemyType::Flanker, FLANKER_HP, FLANKER_SPEED_MIN, FLANKER_SPEED_MAX, 0.1, 0.3)
+                } else if roll < 0.6 {
+                    (EnemyType::Tank, TANK_HP, TANK_SPEED_MIN, TANK_SPEED_MAX, 0.05, 0.2)
+                } else {
+                    (EnemyType::Grunt, GRUNT_HP, GRUNT_SPEED_MIN, GRUNT_SPEED_MAX, 0.1, 0.3)
+                }
+            } else if diff_level < 3 {
                 // Early game: only grunts
                 (EnemyType::Grunt, GRUNT_HP, GRUNT_SPEED_MIN, GRUNT_SPEED_MAX, 0.1, 0.3)
             } else if diff_level < 5 {
@@ -768,22 +1000,60 @@ pub fn enemy_spawn_system(world: &mut World, dt: f32) {
             _ => rand_range(24.0, 34.0),
         };
 
-        // Spawn from map boundaries or drop from the sky
-        let drop_in = rand() < 0.15; // 15% chance to drop from above
-
-        let (spawn_x, spawn_y, initial_vx, initial_vy) = if drop_in {
-            // Drop in from above at a random X across the level
-            let sx = rand_range(40.0, LEVEL_W - 40.0);
-            (sx, -size - rand_range(20.0, 80.0), rand_range(-30.0, 30.0), rand_range(40.0, 80.0))
-        } else {
-            // Enter from the left or right map boundary
-            let from_right = rand() > 0.5;
-            if from_right {
-                (LEVEL_W + rand_range(10.0, 40.0), GROUND_Y - size,
-                 -rand_range(speed_min, speed_max), 0.0)
+        // Spawn direction — more varied in EVE mode
+        let (spawn_x, spawn_y, initial_vx, initial_vy) = if is_eve {
+            let roll = rand();
+            if roll < 0.20 {
+                // Drop from above — various positions and angles
+                let sx = rand_range(40.0, LEVEL_W - 40.0);
+                let vx = rand_range(-80.0, 80.0);
+                let vy = rand_range(50.0, 120.0);
+                (sx, -size - rand_range(30.0, 150.0), vx, vy)
+            } else if roll < 0.35 {
+                // High arc from left — lobbed in with parabolic trajectory
+                let sx = rand_range(-size - 40.0, 100.0);
+                (sx, -size - rand_range(60.0, 200.0),
+                 rand_range(speed_min * 0.8, speed_max * 1.2), rand_range(30.0, 80.0))
+            } else if roll < 0.50 {
+                // High arc from right — lobbed in with parabolic trajectory
+                let sx = rand_range(LEVEL_W - 100.0, LEVEL_W + size + 40.0);
+                (sx, -size - rand_range(60.0, 200.0),
+                 -rand_range(speed_min * 0.8, speed_max * 1.2), rand_range(30.0, 80.0))
+            } else if roll < 0.65 {
+                // Ground rush from left
+                (-size - rand_range(10.0, 60.0), GROUND_Y - size,
+                 rand_range(speed_min, speed_max * 1.3), 0.0)
+            } else if roll < 0.80 {
+                // Ground rush from right
+                (LEVEL_W + rand_range(10.0, 60.0), GROUND_Y - size,
+                 -rand_range(speed_min, speed_max * 1.3), 0.0)
+            } else if roll < 0.90 {
+                // Airdrop at center — parachuting in
+                let sx = rand_range(LEVEL_W * 0.3, LEVEL_W * 0.7);
+                (sx, -size - rand_range(100.0, 300.0),
+                 rand_range(-40.0, 40.0), rand_range(60.0, 100.0))
             } else {
-                (-size - rand_range(10.0, 40.0), GROUND_Y - size,
-                 rand_range(speed_min, speed_max), 0.0)
+                // Side dive — from top-corner with diagonal momentum
+                let from_right = rand() > 0.5;
+                let sx = if from_right { LEVEL_W + rand_range(10.0, 30.0) } else { -size - rand_range(10.0, 30.0) };
+                let vx = if from_right { -rand_range(speed_min, speed_max) } else { rand_range(speed_min, speed_max) };
+                (sx, rand_range(20.0, 150.0), vx, rand_range(40.0, 80.0))
+            }
+        } else {
+            // Normal PVE spawning
+            let drop_in = rand() < 0.15;
+            if drop_in {
+                let sx = rand_range(40.0, LEVEL_W - 40.0);
+                (sx, -size - rand_range(20.0, 80.0), rand_range(-30.0, 30.0), rand_range(40.0, 80.0))
+            } else {
+                let from_right = rand() > 0.5;
+                if from_right {
+                    (LEVEL_W + rand_range(10.0, 40.0), GROUND_Y - size,
+                     -rand_range(speed_min, speed_max), 0.0)
+                } else {
+                    (-size - rand_range(10.0, 40.0), GROUND_Y - size,
+                     rand_range(speed_min, speed_max), 0.0)
+                }
             }
         };
 
@@ -793,12 +1063,15 @@ pub fn enemy_spawn_system(world: &mut World, dt: f32) {
             _ => (ENEMY_MAX_AMMO, ENEMY_RELOAD_TIME),
         };
 
+        // Enemy starts on ground if spawned near ground level
+        let starts_grounded = spawn_y >= GROUND_Y - size - 5.0;
+
         world.spawn()
             .with(Enemy {
                 hp,
                 max_hp: hp,
                 alive: true,
-                on_ground: !drop_in,
+                on_ground: starts_grounded,
                 shoot_timer: rand_range(shoot_min, shoot_max),
                 ai_timer: rand_range(0.3, 0.8),
                 flash: 0.0,
@@ -819,6 +1092,7 @@ pub fn enemy_spawn_system(world: &mut World, dt: f32) {
             .with(Velocity { x: initial_vx, y: initial_vy, gravity_scale: 1.0 })
             .build();
     }
+    } // end spawn batch loop
 }
 
 // ── Enemy AI ─────────────────────────────────────────────────────────────────
@@ -1460,5 +1734,639 @@ pub fn kill_feed_system(world: &mut World, dt: f32) {
 
         // Remove expired entries
         kill_feed.entries.retain(|entry| entry.timer > 0.0);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ── Tests ─────────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use opengame_engine::ecs::World;
+    use opengame_engine::math::Vec2;
+    use opengame_engine::transform::Transform2D;
+
+    // ── Helper: create a World with all required resources ──────────────────
+
+    fn setup_world() -> World {
+        let mut world = World::new();
+        world.insert_resource(GameStateRes::default());
+        world.insert_resource(ScoreRes::default());
+        world.insert_resource(LivesRes::default());
+        world.insert_resource(CameraRes::default());
+        world.insert_resource(SpawnRes::default());
+        world.insert_resource(InputState::default());
+        world.insert_resource(ViewportRes::default());
+        world.insert_resource(DifficultyRes::default());
+        world.insert_resource(SettingsRes::default());
+        world.insert_resource(KillFeedRes::default());
+        world.insert_resource(GameModeRes::default());
+        world.insert_resource(MapRes::default());
+        world
+    }
+
+    fn spawn_player(world: &mut World, x: f32, y: f32) -> opengame_engine::ecs::Entity {
+        world.spawn()
+            .with(Player {
+                facing_right: true,
+                invincible: 0.0,
+                flash: 0.0,
+                shoot_timer: 0.0,
+                on_ground: false,
+                sliding: false,
+                slide_timer: 0.0,
+                aim_angle: 0.0,
+                ammo: 30,
+                max_ammo: 30,
+                reloading: false,
+                reload_timer: 0.0,
+                footstep_timer: 0.0,
+                health: 100,
+                max_health: 100,
+                armor: 50,
+                max_armor: 50,
+            })
+            .with(Transform2D::new(Vec2::new(x, y)))
+            .with(Velocity { x: 0.0, y: 0.0, gravity_scale: 1.0 })
+            .build()
+    }
+
+    fn spawn_enemy(world: &mut World, x: f32, y: f32, enemy_type: EnemyType) -> opengame_engine::ecs::Entity {
+        let (hp, size) = match enemy_type {
+            EnemyType::Scout => (1, 24.0),
+            EnemyType::Grunt => (2, 30.0),
+            EnemyType::Tank => (4, 40.0),
+            EnemyType::Flanker => (2, 28.0),
+        };
+        world.spawn()
+            .with(Enemy {
+                hp, max_hp: hp, alive: true, on_ground: false,
+                shoot_timer: 1.0, ai_timer: 0.5, flash: 0.0, size,
+                enemy_type, ai_state: AIState::Chase, strafe_dir: 1.0,
+                burst_count: 0, dodge_timer: 0.0, state_timer: 0.0,
+                ammo: 10, max_ammo: 10, reloading: false, reload_timer: 2.0,
+                climb_cooldown: 0.0,
+            })
+            .with(Transform2D::new(Vec2::new(x, y)))
+            .with(Velocity { x: 0.0, y: 0.0, gravity_scale: 1.0 })
+            .build()
+    }
+
+    fn spawn_bullet(world: &mut World, x: f32, y: f32, vx: f32, vy: f32, is_player: bool) -> opengame_engine::ecs::Entity {
+        world.spawn()
+            .with(Bullet { x, y, vx, vy, alive: true, is_player })
+            .build()
+    }
+
+    fn spawn_particle(world: &mut World, x: f32, y: f32, life: f32) -> opengame_engine::ecs::Entity {
+        world.spawn()
+            .with(Particle { x, y, vx: 0.0, vy: 0.0, life, max_life: life, size: 4.0, color_idx: 0 })
+            .build()
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // ── AABB Overlap Tests ──────────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn aabb_overlap_identical_rects() {
+        assert!(aabb_overlap(100.0, 100.0, 32.0, 32.0, 100.0, 100.0, 32.0, 32.0));
+    }
+
+    #[test]
+    fn aabb_overlap_partial_horizontal() {
+        // Two 32x32 rects centered at (100,100) and (120,100) — overlap by 12px
+        assert!(aabb_overlap(100.0, 100.0, 32.0, 32.0, 120.0, 100.0, 32.0, 32.0));
+    }
+
+    #[test]
+    fn aabb_overlap_partial_vertical() {
+        assert!(aabb_overlap(100.0, 100.0, 32.0, 32.0, 100.0, 120.0, 32.0, 32.0));
+    }
+
+    #[test]
+    fn aabb_overlap_touching_edges_no_overlap() {
+        // Two 32x32 rects: center at (100,100) and (132,100) — edges touch but don't overlap
+        // distance = 32, half-widths sum = 32, condition is < not <=
+        assert!(!aabb_overlap(100.0, 100.0, 32.0, 32.0, 132.0, 100.0, 32.0, 32.0));
+    }
+
+    #[test]
+    fn aabb_overlap_separated_horizontal() {
+        assert!(!aabb_overlap(0.0, 0.0, 10.0, 10.0, 100.0, 0.0, 10.0, 10.0));
+    }
+
+    #[test]
+    fn aabb_overlap_separated_vertical() {
+        assert!(!aabb_overlap(0.0, 0.0, 10.0, 10.0, 0.0, 100.0, 10.0, 10.0));
+    }
+
+    #[test]
+    fn aabb_overlap_different_sizes() {
+        // Small rect (10x10 at 50,50) inside big rect (100x100 at 50,50)
+        assert!(aabb_overlap(50.0, 50.0, 10.0, 10.0, 50.0, 50.0, 100.0, 100.0));
+    }
+
+    #[test]
+    fn aabb_overlap_corner_touch() {
+        // Two rects that only touch at a corner — should not overlap
+        // rect1: center (50,50), size 20x20 → extends to (60,60)
+        // rect2: center (60,60), size 20x20 → extends from (50,50)
+        // distance_x = 10, half_w_sum = 20 → 10 < 20 → true on x
+        // distance_y = 10, half_h_sum = 20 → 10 < 20 → true on y
+        assert!(aabb_overlap(50.0, 50.0, 20.0, 20.0, 60.0, 60.0, 20.0, 20.0));
+    }
+
+    #[test]
+    fn aabb_overlap_zero_size() {
+        // Zero-size rect should not overlap with anything (distance < 0 is impossible)
+        assert!(!aabb_overlap(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn aabb_overlap_negative_coords() {
+        assert!(aabb_overlap(-50.0, -50.0, 32.0, 32.0, -50.0, -50.0, 32.0, 32.0));
+        assert!(!aabb_overlap(-100.0, -100.0, 10.0, 10.0, 100.0, 100.0, 10.0, 10.0));
+    }
+
+    #[test]
+    fn aabb_overlap_bullet_vs_enemy() {
+        // Simulates a bullet (10x4) hitting an enemy (30x30)
+        // Bullet at (115, 100), enemy centered at (130, 100)
+        assert!(aabb_overlap(115.0, 100.0, 10.0, 4.0, 130.0, 100.0, 30.0, 30.0));
+    }
+
+    #[test]
+    fn aabb_overlap_bullet_near_miss() {
+        // Bullet passes just above the enemy
+        assert!(!aabb_overlap(115.0, 60.0, 10.0, 4.0, 130.0, 100.0, 30.0, 30.0));
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // ── Particle Update System Tests ────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn particle_update_moves_position() {
+        let mut world = setup_world();
+        let e = spawn_particle(&mut world, 100.0, 200.0, 1.0);
+
+        // Set velocity
+        if let Some(p) = world.get_component_mut::<Particle>(e) {
+            p.vx = 50.0;
+            p.vy = -100.0;
+        }
+
+        particle_update_system(&mut world, 0.1);
+
+        let p = world.get_component::<Particle>(e).unwrap();
+        assert!((p.x - 105.0).abs() < 0.01, "Expected x≈105.0, got {}", p.x);
+        assert!((p.y - 190.0).abs() < 0.01, "Expected y≈190.0, got {}", p.y);
+    }
+
+    #[test]
+    fn particle_update_decays_velocity() {
+        let mut world = setup_world();
+        let e = spawn_particle(&mut world, 0.0, 0.0, 1.0);
+
+        if let Some(p) = world.get_component_mut::<Particle>(e) {
+            p.vx = 100.0;
+            p.vy = 200.0;
+        }
+
+        particle_update_system(&mut world, 0.016);
+
+        let p = world.get_component::<Particle>(e).unwrap();
+        // Velocity should be multiplied by 0.98 each frame
+        assert!(p.vx < 100.0, "vx should decay: {}", p.vx);
+        assert!(p.vy < 200.0, "vy should decay: {}", p.vy);
+        assert!(p.vx > 90.0, "vx shouldn't decay too much: {}", p.vx);
+    }
+
+    #[test]
+    fn particle_update_decreases_life() {
+        let mut world = setup_world();
+        let e = spawn_particle(&mut world, 0.0, 0.0, 1.0);
+
+        particle_update_system(&mut world, 0.1);
+
+        let p = world.get_component::<Particle>(e).unwrap();
+        assert!((p.life - 0.9).abs() < 0.01, "Expected life≈0.9, got {}", p.life);
+    }
+
+    #[test]
+    fn particle_update_skips_dead_particles() {
+        let mut world = setup_world();
+        let e = spawn_particle(&mut world, 100.0, 100.0, 0.0);
+
+        // Life is already 0, particle should not be updated
+        if let Some(p) = world.get_component_mut::<Particle>(e) {
+            p.vx = 500.0;
+            p.vy = 500.0;
+        }
+
+        particle_update_system(&mut world, 0.1);
+
+        let p = world.get_component::<Particle>(e).unwrap();
+        assert!((p.x - 100.0).abs() < 0.01, "Dead particle should not move");
+        assert!((p.y - 100.0).abs() < 0.01, "Dead particle should not move");
+    }
+
+    #[test]
+    fn particle_update_multiple_particles() {
+        let mut world = setup_world();
+        let e1 = spawn_particle(&mut world, 0.0, 0.0, 1.0);
+        let e2 = spawn_particle(&mut world, 50.0, 50.0, 0.5);
+
+        if let Some(p) = world.get_component_mut::<Particle>(e1) { p.vx = 10.0; }
+        if let Some(p) = world.get_component_mut::<Particle>(e2) { p.vy = -20.0; }
+
+        particle_update_system(&mut world, 0.1);
+
+        let p1 = world.get_component::<Particle>(e1).unwrap();
+        let p2 = world.get_component::<Particle>(e2).unwrap();
+        assert!(p1.x > 0.0, "Particle 1 should have moved");
+        assert!(p2.y < 50.0, "Particle 2 should have moved up");
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // ── Cleanup System Tests ────────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn cleanup_removes_dead_bullets() {
+        let mut world = setup_world();
+        let alive_bullet = spawn_bullet(&mut world, 0.0, 0.0, 100.0, 0.0, true);
+        let dead_bullet = spawn_bullet(&mut world, 0.0, 0.0, 100.0, 0.0, true);
+
+        if let Some(b) = world.get_component_mut::<Bullet>(dead_bullet) {
+            b.alive = false;
+        }
+
+        cleanup_system(&mut world);
+
+        assert!(world.get_component::<Bullet>(alive_bullet).is_some(), "Alive bullet should remain");
+        assert!(world.get_component::<Bullet>(dead_bullet).is_none(), "Dead bullet should be removed");
+    }
+
+    #[test]
+    fn cleanup_removes_dead_enemies() {
+        let mut world = setup_world();
+        let alive_enemy = spawn_enemy(&mut world, 100.0, 500.0, EnemyType::Grunt);
+        let dead_enemy = spawn_enemy(&mut world, 200.0, 500.0, EnemyType::Scout);
+
+        if let Some(e) = world.get_component_mut::<Enemy>(dead_enemy) {
+            e.alive = false;
+        }
+
+        cleanup_system(&mut world);
+
+        assert!(world.get_component::<Enemy>(alive_enemy).is_some(), "Alive enemy should remain");
+        assert!(world.get_component::<Enemy>(dead_enemy).is_none(), "Dead enemy should be removed");
+    }
+
+    #[test]
+    fn cleanup_removes_expired_particles() {
+        let mut world = setup_world();
+        let alive_particle = spawn_particle(&mut world, 0.0, 0.0, 1.0);
+        let expired_particle = spawn_particle(&mut world, 0.0, 0.0, 0.0);
+
+        cleanup_system(&mut world);
+
+        assert!(world.get_component::<Particle>(alive_particle).is_some(), "Alive particle should remain");
+        assert!(world.get_component::<Particle>(expired_particle).is_none(), "Expired particle should be removed");
+    }
+
+    #[test]
+    fn cleanup_preserves_alive_entities() {
+        let mut world = setup_world();
+        let player = spawn_player(&mut world, 100.0, 536.0);
+        let enemy = spawn_enemy(&mut world, 300.0, 536.0, EnemyType::Grunt);
+        let bullet = spawn_bullet(&mut world, 150.0, 536.0, 100.0, 0.0, true);
+        let particle = spawn_particle(&mut world, 150.0, 536.0, 0.5);
+
+        cleanup_system(&mut world);
+
+        assert!(world.get_component::<Player>(player).is_some());
+        assert!(world.get_component::<Enemy>(enemy).is_some());
+        assert!(world.get_component::<Bullet>(bullet).is_some());
+        assert!(world.get_component::<Particle>(particle).is_some());
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // ── Kill Feed System Tests ──────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn kill_feed_decreases_timers() {
+        let mut world = setup_world();
+        {
+            let kf = world.get_resource_mut::<KillFeedRes>().unwrap();
+            kf.entries.push(KillFeedEntry { message: "Test".to_string(), timer: 4.0 });
+        }
+
+        kill_feed_system(&mut world, 1.0);
+
+        let kf = world.get_resource::<KillFeedRes>().unwrap();
+        assert_eq!(kf.entries.len(), 1);
+        assert!((kf.entries[0].timer - 3.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn kill_feed_removes_expired() {
+        let mut world = setup_world();
+        {
+            let kf = world.get_resource_mut::<KillFeedRes>().unwrap();
+            kf.entries.push(KillFeedEntry { message: "Old".to_string(), timer: 0.5 });
+            kf.entries.push(KillFeedEntry { message: "New".to_string(), timer: 3.0 });
+        }
+
+        kill_feed_system(&mut world, 1.0);
+
+        let kf = world.get_resource::<KillFeedRes>().unwrap();
+        assert_eq!(kf.entries.len(), 1);
+        assert_eq!(kf.entries[0].message, "New");
+    }
+
+    #[test]
+    fn kill_feed_empty() {
+        let mut world = setup_world();
+        kill_feed_system(&mut world, 1.0);
+        let kf = world.get_resource::<KillFeedRes>().unwrap();
+        assert!(kf.entries.is_empty());
+    }
+
+    #[test]
+    fn kill_feed_multiple_expired() {
+        let mut world = setup_world();
+        {
+            let kf = world.get_resource_mut::<KillFeedRes>().unwrap();
+            kf.entries.push(KillFeedEntry { message: "A".to_string(), timer: 0.1 });
+            kf.entries.push(KillFeedEntry { message: "B".to_string(), timer: 0.2 });
+            kf.entries.push(KillFeedEntry { message: "C".to_string(), timer: 5.0 });
+        }
+
+        kill_feed_system(&mut world, 0.5);
+
+        let kf = world.get_resource::<KillFeedRes>().unwrap();
+        assert_eq!(kf.entries.len(), 1);
+        assert_eq!(kf.entries[0].message, "C");
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // ── Camera System Tests ─────────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn camera_follows_player() {
+        let mut world = setup_world();
+        world.get_resource_mut::<GameStateRes>().unwrap().state = GameState::Playing;
+        spawn_player(&mut world, 400.0, 536.0);
+
+        // Run camera system multiple times to let it converge
+        for _ in 0..60 {
+            camera_system(&mut world, 1.0 / 60.0);
+        }
+
+        let cam = world.get_resource::<CameraRes>().unwrap();
+        // Camera should have moved toward the player
+        assert!(cam.camera_x > -10.0, "Camera x should be near zero for centered player: {}", cam.camera_x);
+    }
+
+    #[test]
+    fn camera_does_not_move_when_not_playing() {
+        let mut world = setup_world();
+        // Default state is Title
+        spawn_player(&mut world, 400.0, 536.0);
+
+        camera_system(&mut world, 1.0 / 60.0);
+
+        let cam = world.get_resource::<CameraRes>().unwrap();
+        assert!((cam.camera_x - 0.0).abs() < 0.01, "Camera should not move in Title state");
+    }
+
+    #[test]
+    fn camera_shake_decays() {
+        let mut world = setup_world();
+        world.get_resource_mut::<GameStateRes>().unwrap().state = GameState::Playing;
+        spawn_player(&mut world, 400.0, 536.0);
+        world.get_resource_mut::<CameraRes>().unwrap().shake_amount = 10.0;
+
+        camera_system(&mut world, 0.1);
+
+        let cam = world.get_resource::<CameraRes>().unwrap();
+        assert!(cam.shake_amount < 10.0, "Shake should decay: {}", cam.shake_amount);
+    }
+
+    #[test]
+    fn camera_shake_clamps_to_zero() {
+        let mut world = setup_world();
+        world.get_resource_mut::<GameStateRes>().unwrap().state = GameState::Playing;
+        spawn_player(&mut world, 400.0, 536.0);
+        world.get_resource_mut::<CameraRes>().unwrap().shake_amount = 0.5;
+
+        camera_system(&mut world, 1.0);
+
+        let cam = world.get_resource::<CameraRes>().unwrap();
+        assert!(cam.shake_amount >= 0.0, "Shake should not go negative: {}", cam.shake_amount);
+    }
+
+    #[test]
+    fn camera_works_during_game_over() {
+        let mut world = setup_world();
+        world.get_resource_mut::<GameStateRes>().unwrap().state = GameState::GameOver;
+        spawn_player(&mut world, 400.0, 536.0);
+
+        // Should not panic
+        camera_system(&mut world, 1.0 / 60.0);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // ── Physics Step Tests ──────────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn physics_applies_gravity() {
+        let mut world = setup_world();
+        world.get_resource_mut::<GameStateRes>().unwrap().state = GameState::Playing;
+        let e = spawn_player(&mut world, 100.0, 0.0); // Start high up
+
+        // Set zero initial velocity
+        if let Some(v) = world.get_component_mut::<Velocity>(e) {
+            v.y = 0.0;
+        }
+
+        physics_step(&mut world, 0.1);
+
+        let v = world.get_component::<Velocity>(e).unwrap();
+        assert!(v.y > 0.0, "Gravity should cause downward velocity: {}", v.y);
+    }
+
+    #[test]
+    fn physics_ground_clamp() {
+        let mut world = setup_world();
+        world.get_resource_mut::<GameStateRes>().unwrap().state = GameState::Playing;
+        // Spawn player below ground (should be clamped up)
+        let e = spawn_player(&mut world, 100.0, 600.0);
+
+        if let Some(v) = world.get_component_mut::<Velocity>(e) {
+            v.y = 100.0; // Moving down
+        }
+
+        physics_step(&mut world, 0.1);
+
+        let t = world.get_component::<Transform2D>(e).unwrap();
+        let max_y = crate::GROUND_Y - crate::PLAYER_SIZE;
+        assert!(t.position.y <= max_y + 0.1, "Player should be clamped to ground: {} > {}", t.position.y, max_y);
+    }
+
+    #[test]
+    fn physics_ground_sets_on_ground() {
+        let mut world = setup_world();
+        world.get_resource_mut::<GameStateRes>().unwrap().state = GameState::Playing;
+        let e = spawn_player(&mut world, 100.0, 536.0);
+
+        physics_step(&mut world, 0.016);
+
+        let p = world.get_component::<Player>(e).unwrap();
+        assert!(p.on_ground, "Player at ground level should be on_ground");
+    }
+
+    #[test]
+    fn physics_clamps_to_level_bounds() {
+        let mut world = setup_world();
+        world.get_resource_mut::<GameStateRes>().unwrap().state = GameState::Playing;
+        let e = spawn_player(&mut world, -10.0, 536.0);
+
+        physics_step(&mut world, 0.016);
+
+        let t = world.get_component::<Transform2D>(e).unwrap();
+        assert!(t.position.x >= 0.0, "Player should not go below level start: {}", t.position.x);
+    }
+
+    #[test]
+    fn physics_clamps_to_level_end() {
+        let mut world = setup_world();
+        world.get_resource_mut::<GameStateRes>().unwrap().state = GameState::Playing;
+        let e = spawn_player(&mut world, crate::LEVEL_W + 100.0, 536.0);
+
+        physics_step(&mut world, 0.016);
+
+        let t = world.get_component::<Transform2D>(e).unwrap();
+        let max_x = crate::LEVEL_W - crate::PLAYER_SIZE;
+        assert!(t.position.x <= max_x + 0.1, "Player should not exceed level end: {} > {}", t.position.x, max_x);
+    }
+
+    #[test]
+    fn physics_does_nothing_when_not_playing() {
+        let mut world = setup_world();
+        // Default state is Title
+        let e = spawn_player(&mut world, 100.0, 0.0);
+        if let Some(v) = world.get_component_mut::<Velocity>(e) { v.y = 500.0; }
+
+        physics_step(&mut world, 0.1);
+
+        let v = world.get_component::<Velocity>(e).unwrap();
+        assert!((v.y - 500.0).abs() < 0.01, "Physics should not run in Title state");
+    }
+
+    #[test]
+    fn physics_enemy_ground_clamp() {
+        let mut world = setup_world();
+        world.get_resource_mut::<GameStateRes>().unwrap().state = GameState::Playing;
+        let e = spawn_enemy(&mut world, 200.0, 600.0, EnemyType::Grunt);
+
+        physics_step(&mut world, 0.016);
+
+        let en = world.get_component::<Enemy>(e).unwrap();
+        assert!(en.on_ground, "Enemy at ground level should be on_ground");
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // ── Bullet Move System Tests ────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn bullet_moves_horizontally() {
+        let mut world = setup_world();
+        world.get_resource_mut::<GameStateRes>().unwrap().state = GameState::Playing;
+        let e = spawn_bullet(&mut world, 100.0, 300.0, 650.0, 0.0, true);
+
+        bullet_move_system(&mut world, 0.1);
+
+        let b = world.get_component::<Bullet>(e).unwrap();
+        assert!((b.x - 165.0).abs() < 0.01, "Bullet should move right: {}", b.x);
+        assert!((b.y - 300.0).abs() < 0.01, "Bullet height should not change: {}", b.y);
+    }
+
+    // Note: bullet_dies_on_floor_hit is not tested natively because floor hits
+    // trigger spark particle spawning which calls rand() (requires JS runtime).
+
+    #[test]
+    fn bullet_dies_out_of_bounds() {
+        let mut world = setup_world();
+        world.get_resource_mut::<GameStateRes>().unwrap().state = GameState::Playing;
+        let e = spawn_bullet(&mut world, -5.0, 300.0, -200.0, 0.0, true);
+
+        bullet_move_system(&mut world, 0.1);
+
+        let b = world.get_component::<Bullet>(e).unwrap();
+        assert!(!b.alive, "Bullet should die when out of bounds");
+    }
+
+    #[test]
+    fn bullet_stays_alive_in_bounds() {
+        let mut world = setup_world();
+        world.get_resource_mut::<GameStateRes>().unwrap().state = GameState::Playing;
+        let e = spawn_bullet(&mut world, 400.0, 300.0, 100.0, 0.0, true);
+
+        bullet_move_system(&mut world, 0.016);
+
+        let b = world.get_component::<Bullet>(e).unwrap();
+        assert!(b.alive, "Bullet in bounds should stay alive");
+    }
+
+    #[test]
+    fn bullet_does_nothing_when_not_playing() {
+        let mut world = setup_world();
+        // Default state is Title
+        let e = spawn_bullet(&mut world, 100.0, 300.0, 650.0, 0.0, true);
+
+        bullet_move_system(&mut world, 0.1);
+
+        let b = world.get_component::<Bullet>(e).unwrap();
+        assert!((b.x - 100.0).abs() < 0.01, "Bullet should not move in Title state");
+    }
+
+    #[test]
+    fn bullet_dies_above_screen() {
+        let mut world = setup_world();
+        world.get_resource_mut::<GameStateRes>().unwrap().state = GameState::Playing;
+        let e = spawn_bullet(&mut world, 400.0, -5.0, 0.0, -200.0, true);
+
+        bullet_move_system(&mut world, 0.1);
+
+        let b = world.get_component::<Bullet>(e).unwrap();
+        assert!(!b.alive, "Bullet should die when above screen");
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // ── Game State Tests ────────────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn game_state_transitions() {
+        assert_ne!(GameState::Title, GameState::Playing);
+        assert_ne!(GameState::Playing, GameState::GameOver);
+        assert_ne!(GameState::Paused, GameState::Playing);
+    }
+
+    #[test]
+    fn game_state_clone_copy() {
+        let s = GameState::Playing;
+        let s2 = s;
+        assert_eq!(s, s2);
     }
 }

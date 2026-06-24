@@ -1,6 +1,26 @@
 use crate::components::{GameState, ObstacleShape};
 use opengame_engine::math::Vec2;
 
+/// Game mode — controls player agency and difficulty scaling.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum GameMode {
+    /// Normal player-controlled gameplay.
+    PVE,
+    /// AI vs AI spectacle — player is AI-controlled, boosted stats, faster spawns.
+    EVE,
+}
+
+/// Current game mode resource.
+pub struct GameModeRes {
+    pub mode: GameMode,
+}
+
+impl Default for GameModeRes {
+    fn default() -> Self {
+        Self { mode: GameMode::PVE }
+    }
+}
+
 /// Snapshot of input state, populated once per frame.
 pub struct InputState {
     pub left: bool,
@@ -13,6 +33,9 @@ pub struct InputState {
     pub mouse_shoot: bool,
     pub reload_pressed: bool,
     pub escape_pressed: bool,
+    /// Analog movement from mobile joystick (-1.0 = full left, 1.0 = full right).
+    /// When non-zero, overrides left/right booleans.
+    pub move_x: f32,
 }
 
 impl Default for InputState {
@@ -28,6 +51,7 @@ impl Default for InputState {
             mouse_shoot: false,
             reload_pressed: false,
             escape_pressed: false,
+            move_x: 0.0,
         }
     }
 }
@@ -37,6 +61,8 @@ pub struct GameStateRes {
     pub state: GameState,
     pub title_pulse: f32,
     pub game_over_timer: f32,
+    /// When false, keyboard input cannot start the game from Title (popup must be dismissed first).
+    pub can_start: bool,
 }
 
 impl Default for GameStateRes {
@@ -45,6 +71,7 @@ impl Default for GameStateRes {
             state: GameState::Title,
             title_pulse: 0.0,
             game_over_timer: 0.0,
+            can_start: false,
         }
     }
 }
@@ -231,5 +258,210 @@ pub struct MapRes {
 impl Default for MapRes {
     fn default() -> Self {
         Self { obstacles: Vec::new() }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── GameMode Tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn game_mode_variants() {
+        assert_ne!(GameMode::PVE, GameMode::EVE);
+        assert_eq!(GameMode::PVE, GameMode::PVE);
+    }
+
+    #[test]
+    fn game_mode_res_default() {
+        let gm = GameModeRes::default();
+        assert_eq!(gm.mode, GameMode::PVE);
+    }
+
+    // ── InputState Tests ────────────────────────────────────────────────────
+
+    #[test]
+    fn input_state_default() {
+        let input = InputState::default();
+        assert!(!input.left);
+        assert!(!input.right);
+        assert!(!input.jump_pressed);
+        assert!(!input.slide_down);
+        assert!(!input.shoot_down);
+        assert!(!input.start_pressed);
+        assert!(!input.mouse_shoot);
+        assert!(!input.reload_pressed);
+        assert!(!input.escape_pressed);
+        assert_eq!(input.mouse_pos, Vec2::ZERO);
+        assert!((input.move_x - 0.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn input_state_modification() {
+        let mut input = InputState::default();
+        input.left = true;
+        input.mouse_shoot = true;
+        assert!(input.left);
+        assert!(input.mouse_shoot);
+    }
+
+    // ── GameStateRes Tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn game_state_res_default() {
+        let gs = GameStateRes::default();
+        assert_eq!(gs.state, GameState::Title);
+        assert!((gs.title_pulse - 0.0).abs() < 0.01);
+        assert!((gs.game_over_timer - 0.0).abs() < 0.01);
+        assert!(!gs.can_start);
+    }
+
+    #[test]
+    fn game_state_res_transitions() {
+        let mut gs = GameStateRes::default();
+
+        gs.state = GameState::Playing;
+        assert_eq!(gs.state, GameState::Playing);
+
+        gs.state = GameState::Paused;
+        assert_eq!(gs.state, GameState::Paused);
+
+        gs.state = GameState::Playing;
+        assert_eq!(gs.state, GameState::Playing);
+
+        gs.state = GameState::GameOver;
+        assert_eq!(gs.state, GameState::GameOver);
+    }
+
+    // ── ScoreRes Tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn score_res_default() {
+        let s = ScoreRes::default();
+        assert_eq!(s.score, 0);
+        assert_eq!(s.high_score, 0);
+    }
+
+    #[test]
+    fn score_res_tracks_high_score() {
+        let mut s = ScoreRes::default();
+        s.score = 500;
+        s.high_score = s.score.max(s.high_score);
+        assert_eq!(s.high_score, 500);
+
+        s.score = 200;
+        s.high_score = s.score.max(s.high_score);
+        assert_eq!(s.high_score, 500, "High score should not decrease");
+
+        s.score = 1000;
+        s.high_score = s.score.max(s.high_score);
+        assert_eq!(s.high_score, 1000);
+    }
+
+    // ── LivesRes Tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn lives_res_default() {
+        let l = LivesRes::default();
+        assert_eq!(l.lives, crate::MAX_LIVES);
+    }
+
+    // ── CameraRes Tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn camera_res_default() {
+        let c = CameraRes::default();
+        assert!((c.camera_x - 0.0).abs() < 0.01);
+        assert!((c.camera_y - 0.0).abs() < 0.01);
+        assert!((c.shake_amount - 0.0).abs() < 0.01);
+    }
+
+    // ── SpawnRes Tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn spawn_res_default() {
+        let s = SpawnRes::default();
+        assert!((s.spawn_timer - 1.5).abs() < 0.01);
+        assert!((s.spawn_interval - 2.0).abs() < 0.01);
+        assert!((s.difficulty_timer - 0.0).abs() < 0.01);
+    }
+
+    // ── ViewportRes Tests ───────────────────────────────────────────────────
+
+    #[test]
+    fn viewport_res_default() {
+        let v = ViewportRes::default();
+        assert_eq!(v.vp_x, 0);
+        assert_eq!(v.vp_y, 0);
+        assert_eq!(v.vp_w, 800);
+        assert_eq!(v.vp_h, 600);
+        assert!((v.scale - 1.0).abs() < 0.01);
+        assert!((v.canvas_w - 800.0).abs() < 0.01);
+        assert!((v.canvas_h - 600.0).abs() < 0.01);
+    }
+
+    // ── DifficultyRes Tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn difficulty_res_default() {
+        let d = DifficultyRes::default();
+        assert!((d.elapsed_time - 0.0).abs() < 0.01);
+        assert_eq!(d.level, 0);
+        assert!((d.accuracy_mult - 0.98).abs() < 0.01);
+        assert!((d.reaction_mult - 0.5).abs() < 0.01);
+    }
+
+    // ── KillFeedRes Tests ───────────────────────────────────────────────────
+
+    #[test]
+    fn kill_feed_res_default() {
+        let kf = KillFeedRes::default();
+        assert!(kf.entries.is_empty());
+        assert!(kf.new_entries.is_empty());
+    }
+
+    #[test]
+    fn kill_feed_entry() {
+        let entry = KillFeedEntry { message: "Test kill".to_string(), timer: 4.0 };
+        assert_eq!(entry.message, "Test kill");
+        assert!((entry.timer - 4.0).abs() < 0.01);
+    }
+
+    // ── SettingsRes Tests ───────────────────────────────────────────────────
+
+    #[test]
+    fn settings_res_default() {
+        let s = SettingsRes::default();
+        assert!((s.master_volume - 0.8).abs() < 0.01);
+        assert!((s.sfx_volume - 0.8).abs() < 0.01);
+        assert!((s.music_volume - 0.6).abs() < 0.01);
+        assert!(s.screen_shake);
+        assert!(!s.show_fps);
+        assert_eq!(s.difficulty, 1);
+        assert!(!s.aim_assist);
+        assert!((s.crosshair_color[0] - 0.0).abs() < 0.01);
+        assert!((s.crosshair_color[1] - 1.0).abs() < 0.01);
+        assert!((s.crosshair_color[2] - 0.53).abs() < 0.01);
+        assert!((s.crosshair_size - 1.0).abs() < 0.01);
+    }
+
+    // ── MapRes Tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn map_res_default() {
+        let m = MapRes::default();
+        assert!(m.obstacles.is_empty());
+    }
+
+    #[test]
+    fn obstacle_creation() {
+        let obs = Obstacle {
+            x: 100.0, y: 500.0, w: 40.0, h: 68.0,
+            shape: ObstacleShape::Rectangle,
+            color: (0.9, 0.9, 0.9),
+        };
+        assert!((obs.x - 100.0).abs() < 0.01);
+        assert_eq!(obs.shape, ObstacleShape::Rectangle);
     }
 }

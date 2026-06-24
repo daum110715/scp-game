@@ -4,16 +4,24 @@ mod systems;
 
 use std::cell::RefCell;
 use std::rc::Rc;
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
 
+#[cfg(target_arch = "wasm32")]
 type AnimationFrameClosure = Rc<RefCell<Option<Closure<dyn FnMut(f64)>>>>;
 
 use opengame_engine::color::Color;
 use opengame_engine::ecs::{QuerySingle, World};
+#[cfg(target_arch = "wasm32")]
 use opengame_engine::input::{keys::KeyCode, InputManager};
-use opengame_engine::math::{Mat4, Vec2, Vec3};
+use opengame_engine::math::Vec2;
+#[cfg(target_arch = "wasm32")]
+use opengame_engine::math::{Mat4, Vec3};
+#[cfg(target_arch = "wasm32")]
 use opengame_engine::renderer::{GlBackend, ShapeRenderer};
+#[cfg(target_arch = "wasm32")]
 use opengame_engine::time::Time;
 use opengame_engine::transform::Transform2D;
 
@@ -21,6 +29,7 @@ use components::*;
 use resources::*;
 
 // ── Direct JS sound callback ──────────────────────────────────────────────────
+#[cfg(target_arch = "wasm32")]
 pub(crate) fn play_sound_js(name: &str) {
     let window = web_sys::window().unwrap();
     let fn_name = wasm_bindgen::JsValue::from_str("__playSound");
@@ -31,6 +40,10 @@ pub(crate) fn play_sound_js(name: &str) {
         }
     }
 }
+
+/// No-op stub for native tests (no JS runtime available).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn play_sound_js(_name: &str) {}
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 pub(crate) const PLAYER_SIZE: f32 = 32.0;
@@ -89,6 +102,13 @@ pub(crate) const FLANKER_HP: i32 = 2;
 pub(crate) const DODGE_RANGE: f32 = 100.0;
 pub(crate) const DODGE_COOLDOWN: f32 = 0.5;
 
+// EVE mode — AI vs AI spectacle
+pub(crate) const EVE_PLAYER_MAX_HEALTH: i32 = 200;
+pub(crate) const EVE_PLAYER_MAX_ARMOR: i32 = 100;
+pub(crate) const EVE_PLAYER_MAX_AMMO: i32 = 50;
+pub(crate) const EVE_SPAWN_INTERVAL: f32 = 0.32;
+pub(crate) const EVE_MAX_ENEMIES: usize = 30;
+
 // ── Utility ────────────────────────────────────────────────────────────────────
 pub(crate) fn rand() -> f32 {
     js_sys::Math::random() as f32
@@ -98,7 +118,7 @@ pub(crate) fn rand_range(min: f32, max: f32) -> f32 {
     min + rand() * (max - min)
 }
 
-fn particle_color(idx: u8) -> Color {
+pub(crate) fn particle_color(idx: u8) -> Color {
     match idx % 7 {
         0 => Color::new(1.0, 0.9, 0.2, 1.0),
         1 => Color::new(1.0, 0.5, 0.1, 1.0),
@@ -111,6 +131,7 @@ fn particle_color(idx: u8) -> Color {
 }
 
 // ── Static game reference for WASM exports ─────────────────────────────────────
+#[cfg(target_arch = "wasm32")]
 thread_local! {
     static GAME_REF: RefCell<Option<Rc<RefCell<ScpGame>>>> = RefCell::new(None);
 }
@@ -168,7 +189,20 @@ fn init_world(world: &mut World) {
     world.insert_resource(DifficultyRes::default());
     world.insert_resource(SettingsRes::default());
     world.insert_resource(KillFeedRes::default());
+    world.insert_resource(GameModeRes::default());
     world.insert_resource(generate_map());
+
+    // Check if EVE mode is active for boosted stats
+    let is_eve = world.get_resource::<GameModeRes>()
+        .map(|g| g.mode == GameMode::EVE)
+        .unwrap_or(false);
+
+    let (health, max_health, armor, max_armor, ammo, max_ammo) = if is_eve {
+        (EVE_PLAYER_MAX_HEALTH, EVE_PLAYER_MAX_HEALTH, EVE_PLAYER_MAX_ARMOR, EVE_PLAYER_MAX_ARMOR,
+         EVE_PLAYER_MAX_AMMO, EVE_PLAYER_MAX_AMMO)
+    } else {
+        (MAX_HEALTH, MAX_HEALTH, MAX_ARMOR, MAX_ARMOR, MAX_AMMO, MAX_AMMO)
+    };
 
     // Player entity
     world.spawn()
@@ -181,15 +215,15 @@ fn init_world(world: &mut World) {
             sliding: false,
             slide_timer: 0.0,
             aim_angle: 0.0,
-            ammo: MAX_AMMO,
-            max_ammo: MAX_AMMO,
+            ammo,
+            max_ammo,
             reloading: false,
             reload_timer: 0.0,
             footstep_timer: 0.0,
-            health: MAX_HEALTH,
-            max_health: MAX_HEALTH,
-            armor: MAX_ARMOR,
-            max_armor: MAX_ARMOR,
+            health,
+            max_health,
+            armor,
+            max_armor,
         })
         .with(Transform2D::new(Vec2::new(100.0, GROUND_Y - PLAYER_SIZE)))
         .with(Velocity { x: 0.0, y: 0.0, gravity_scale: 1.0 })
@@ -197,6 +231,7 @@ fn init_world(world: &mut World) {
 }
 
 // ── Main Game Struct ───────────────────────────────────────────────────────────
+#[cfg(target_arch = "wasm32")]
 struct ScpGame {
     gl: GlBackend,
     shapes: ShapeRenderer,
@@ -205,6 +240,7 @@ struct ScpGame {
     world: World,
 }
 
+#[cfg(target_arch = "wasm32")]
 impl ScpGame {
     fn new() -> Result<Self, String> {
         opengame_engine::log::init();
@@ -233,19 +269,27 @@ impl ScpGame {
         let high = self.world.get_resource::<ScoreRes>()
             .map(|s| s.high_score.max(s.score))
             .unwrap_or(0);
-        let state = self.world.get_resource::<GameStateRes>()
-            .map(|gs| gs.state)
-            .unwrap_or(GameState::Title);
+        let gs_res = self.world.get_resource::<GameStateRes>()
+            .map(|gs| (gs.state, gs.can_start))
+            .unwrap_or((GameState::Title, false));
+        let (state, can_start) = gs_res;
+        let game_mode = self.world.get_resource::<GameModeRes>()
+            .map(|g| g.mode)
+            .unwrap_or(GameMode::PVE);
 
         self.world.clear();
         init_world(&mut self.world);
 
-        // Restore state and high score that init_world() overwrote with defaults
+        // Restore state, high score, and game mode that init_world() overwrote with defaults
         if let Some(gs) = self.world.get_resource_mut::<GameStateRes>() {
             gs.state = state;
+            gs.can_start = can_start;
         }
         if let Some(score) = self.world.get_resource_mut::<ScoreRes>() {
             score.high_score = high;
+        }
+        if let Some(gm) = self.world.get_resource_mut::<GameModeRes>() {
+            gm.mode = game_mode;
         }
     }
 
@@ -268,12 +312,14 @@ impl ScpGame {
             mouse_shoot: self.input.is_mouse_down(opengame_engine::input::keys::MouseButton::Left),
             reload_pressed: self.input.is_key_pressed(KeyCode::KeyR),
             escape_pressed,
+            move_x: 0.0, // Keyboard input uses left/right booleans instead
         };
         self.world.insert_resource(input_state);
 
         match gs {
             GameState::Title => {
-                if self.world.get_resource::<InputState>().unwrap().start_pressed {
+                let can_start = self.world.get_resource::<GameStateRes>().unwrap().can_start;
+                if can_start && self.world.get_resource::<InputState>().unwrap().start_pressed {
                     self.world.get_resource_mut::<GameStateRes>().unwrap().state = GameState::Playing;
                     self.reset_game();
                 }
@@ -313,6 +359,14 @@ impl ScpGame {
 
         let state = self.world.get_resource::<GameStateRes>().unwrap().state;
         if state == GameState::Playing {
+            // In EVE mode, AI controls the player by writing synthetic input
+            let is_eve = self.world.get_resource::<GameModeRes>()
+                .map(|g| g.mode == GameMode::EVE)
+                .unwrap_or(false);
+            if is_eve {
+                systems::player_ai_system(&mut self.world, dt);
+            }
+
             // Game systems
             systems::player_move_system(&mut self.world, dt);
             systems::player_shoot_system(&mut self.world, dt);
@@ -706,6 +760,7 @@ impl ScpGame {
 }
 
 // ── WASM Exports ──────────────────────────────────────────────────────────────
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn get_score() -> i32 {
     GAME_REF.with(|g| {
@@ -715,6 +770,7 @@ pub fn get_score() -> i32 {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn get_lives() -> i32 {
     GAME_REF.with(|g| {
@@ -724,6 +780,7 @@ pub fn get_lives() -> i32 {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn get_health() -> i32 {
     GAME_REF.with(|g| {
@@ -737,6 +794,7 @@ pub fn get_health() -> i32 {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn get_armor() -> i32 {
     GAME_REF.with(|g| {
@@ -750,6 +808,7 @@ pub fn get_armor() -> i32 {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn get_max_health() -> i32 {
     GAME_REF.with(|g| {
@@ -763,6 +822,7 @@ pub fn get_max_health() -> i32 {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn get_max_armor() -> i32 {
     GAME_REF.with(|g| {
@@ -776,6 +836,7 @@ pub fn get_max_armor() -> i32 {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn get_game_state() -> u8 {
     GAME_REF.with(|g| {
@@ -791,6 +852,7 @@ pub fn get_game_state() -> u8 {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn get_high_score() -> i32 {
     GAME_REF.with(|g| {
@@ -800,6 +862,22 @@ pub fn get_high_score() -> i32 {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+/// Dismiss the title popup and enable keyboard/gamepad start.
+/// Called by JS when the popup is closed.
+pub fn dismiss_popup() {
+    GAME_REF.with(|g| {
+        if let Some(ref game) = *g.borrow() {
+            let mut game = game.borrow_mut();
+            if let Some(gs) = game.world.get_resource_mut::<GameStateRes>() {
+                gs.can_start = true;
+            }
+        }
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn start_game() {
     GAME_REF.with(|g| {
@@ -807,13 +885,17 @@ pub fn start_game() {
             let mut game = game.borrow_mut();
             let current = game.world.get_resource::<GameStateRes>().map(|gs| gs.state).unwrap_or(GameState::Title);
             if current == GameState::Title {
-                game.world.get_resource_mut::<GameStateRes>().unwrap().state = GameState::Playing;
+                let gs = game.world.get_resource_mut::<GameStateRes>().unwrap();
+                gs.state = GameState::Playing;
+                gs.can_start = true;
+                drop(gs);
                 game.reset_game();
             }
         }
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn restart_game() {
     GAME_REF.with(|g| {
@@ -828,6 +910,7 @@ pub fn restart_game() {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn get_ammo() -> i32 {
     GAME_REF.with(|g| {
@@ -841,6 +924,7 @@ pub fn get_ammo() -> i32 {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn get_max_ammo() -> i32 {
     GAME_REF.with(|g| {
@@ -854,6 +938,7 @@ pub fn get_max_ammo() -> i32 {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn get_reloading() -> bool {
     GAME_REF.with(|g| {
@@ -867,6 +952,65 @@ pub fn get_reloading() -> bool {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn get_eve_mode() -> bool {
+    GAME_REF.with(|g| {
+        if let Some(ref game) = *g.borrow() {
+            game.borrow().world.get_resource::<GameModeRes>()
+                .map(|gm| gm.mode == GameMode::EVE)
+                .unwrap_or(false)
+        } else { false }
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn set_eve_mode(enabled: bool) {
+    GAME_REF.with(|g| {
+        if let Some(ref game) = *g.borrow() {
+            let mut game = game.borrow_mut();
+            let new_mode = if enabled { GameMode::EVE } else { GameMode::PVE };
+            let current = game.world.get_resource::<GameModeRes>()
+                .map(|gm| gm.mode)
+                .unwrap_or(GameMode::PVE);
+            if current != new_mode {
+                if let Some(gm) = game.world.get_resource_mut::<GameModeRes>() {
+                    gm.mode = new_mode;
+                }
+                // Reset game to apply boosted/normal stats
+                game.reset_game();
+                game.world.get_resource_mut::<GameStateRes>().unwrap().state = GameState::Playing;
+            }
+        }
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn get_crosshair_x() -> f32 {
+    GAME_REF.with(|g| {
+        if let Some(ref game) = *g.borrow() {
+            game.borrow().world.get_resource::<InputState>()
+                .map(|i| i.mouse_pos.x)
+                .unwrap_or(0.0)
+        } else { 0.0 }
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn get_crosshair_y() -> f32 {
+    GAME_REF.with(|g| {
+        if let Some(ref game) = *g.borrow() {
+            game.borrow().world.get_resource::<InputState>()
+                .map(|i| i.mouse_pos.y)
+                .unwrap_or(0.0)
+        } else { 0.0 }
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn pause_game() {
     GAME_REF.with(|g| {
@@ -880,6 +1024,7 @@ pub fn pause_game() {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn resume_game() {
     GAME_REF.with(|g| {
@@ -894,6 +1039,7 @@ pub fn resume_game() {
 }
 
 /// Apply a single setting from JS. Key must match one of the known setting names.
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn set_setting(key: &str, value: &str) {
     GAME_REF.with(|g| {
@@ -912,6 +1058,19 @@ pub fn set_setting(key: &str, value: &str) {
                     "crosshair_r" => { if let Ok(v) = value.parse::<f32>() { s.crosshair_color[0] = v.clamp(0.0, 1.0); } }
                     "crosshair_g" => { if let Ok(v) = value.parse::<f32>() { s.crosshair_color[1] = v.clamp(0.0, 1.0); } }
                     "crosshair_b" => { if let Ok(v) = value.parse::<f32>() { s.crosshair_color[2] = v.clamp(0.0, 1.0); } }
+                    "eve_mode" => {
+                        let enabled = value == "true";
+                        let new_mode = if enabled { GameMode::EVE } else { GameMode::PVE };
+                        let current = game.world.get_resource::<GameModeRes>()
+                            .map(|gm| gm.mode).unwrap_or(GameMode::PVE);
+                        if current != new_mode {
+                            if let Some(gm) = game.world.get_resource_mut::<GameModeRes>() {
+                                gm.mode = new_mode;
+                            }
+                            game.reset_game();
+                            game.world.get_resource_mut::<GameStateRes>().unwrap().state = GameState::Playing;
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -934,6 +1093,7 @@ pub fn set_setting(key: &str, value: &str) {
 
 /// Drain new kill feed messages and return them as a pipe-separated string.
 /// Returns empty string if no new messages. JS polls this each frame.
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn drain_kill_feed() -> String {
     GAME_REF.with(|g| {
@@ -948,7 +1108,108 @@ pub fn drain_kill_feed() -> String {
     })
 }
 
+// ── Mobile Touch Input ─────────────────────────────────────────────────────────
+
+/// Set aim position from touch (screen coordinates). Called by JS on touch move.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn set_touch_aim(x: f32, y: f32) {
+    GAME_REF.with(|g| {
+        if let Some(ref game) = *g.borrow() {
+            let mut game = game.borrow_mut();
+            if let Some(input) = game.world.get_resource_mut::<InputState>() {
+                input.mouse_pos = Vec2::new(x, y);
+            }
+        }
+    })
+}
+
+/// Set touch shooting state. Called by JS when right-side screen is touched/released.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn set_touch_shoot(shooting: bool) {
+    GAME_REF.with(|g| {
+        if let Some(ref game) = *g.borrow() {
+            let mut game = game.borrow_mut();
+            if let Some(input) = game.world.get_resource_mut::<InputState>() {
+                input.mouse_shoot = shooting;
+            }
+        }
+    })
+}
+
+/// Set analog joystick movement. dx: -1.0 (left) to 1.0 (right).
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn set_touch_move(dx: f32) {
+    GAME_REF.with(|g| {
+        if let Some(ref game) = *g.borrow() {
+            let mut game = game.borrow_mut();
+            if let Some(input) = game.world.get_resource_mut::<InputState>() {
+                input.move_x = dx.clamp(-1.0, 1.0);
+            }
+        }
+    })
+}
+
+/// Trigger a jump from mobile touch.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn set_touch_jump(pressed: bool) {
+    GAME_REF.with(|g| {
+        if let Some(ref game) = *g.borrow() {
+            let mut game = game.borrow_mut();
+            if let Some(input) = game.world.get_resource_mut::<InputState>() {
+                input.jump_pressed = pressed;
+            }
+        }
+    })
+}
+
+/// Trigger reload from mobile touch.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn set_touch_reload() {
+    GAME_REF.with(|g| {
+        if let Some(ref game) = *g.borrow() {
+            let mut game = game.borrow_mut();
+            if let Some(input) = game.world.get_resource_mut::<InputState>() {
+                input.reload_pressed = true;
+            }
+        }
+    })
+}
+
+/// Trigger slide from mobile touch.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn set_touch_slide(sliding: bool) {
+    GAME_REF.with(|g| {
+        if let Some(ref game) = *g.borrow() {
+            let mut game = game.borrow_mut();
+            if let Some(input) = game.world.get_resource_mut::<InputState>() {
+                input.slide_down = sliding;
+            }
+        }
+    })
+}
+
+/// Trigger start/dismiss from mobile touch.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn set_touch_start() {
+    GAME_REF.with(|g| {
+        if let Some(ref game) = *g.borrow() {
+            let mut game = game.borrow_mut();
+            if let Some(input) = game.world.get_resource_mut::<InputState>() {
+                input.start_pressed = true;
+            }
+        }
+    })
+}
+
 // ── Entry Point ────────────────────────────────────────────────────────────────
+#[cfg(all(target_arch = "wasm32", not(test)))]
 #[wasm_bindgen(start)]
 pub fn main() {
     let mut game = ScpGame::new().expect("Failed to create SCP Game");
@@ -980,6 +1241,210 @@ pub fn main() {
     request_animation_frame(g.borrow().as_ref().unwrap());
 }
 
+#[cfg(target_arch = "wasm32")]
 fn request_animation_frame(f: &Closure<dyn FnMut(f64)>) {
     web_sys::window().unwrap().request_animation_frame(f.as_ref().unchecked_ref()).unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // ── Constants Tests ─────────────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn constants_are_positive() {
+        assert!(PLAYER_SIZE > 0.0);
+        assert!(PLAYER_SPEED > 0.0);
+        assert!(JUMP_FORCE > 0.0);
+        assert!(GRAVITY > 0.0);
+        assert!(GROUND_Y > 0.0);
+        assert!(BULLET_SPEED > 0.0);
+        assert!(ENEMY_BULLET_SPEED > 0.0);
+        assert!(SHOOT_INTERVAL > 0.0);
+        assert!(INVINCIBLE_TIME > 0.0);
+        assert!(RELOAD_TIME > 0.0);
+    }
+
+    #[test]
+    fn constants_world_dimensions() {
+        assert!(WORLD_W > 0.0);
+        assert!(WORLD_H > 0.0);
+        assert!(LEVEL_W > WORLD_W, "Level should be wider than viewport");
+    }
+
+    #[test]
+    fn constants_player_limits() {
+        assert!(MAX_LIVES > 0);
+        assert!(MAX_HEALTH > 0);
+        assert!(MAX_ARMOR > 0);
+        assert!(MAX_AMMO > 0);
+        assert!(HIT_DAMAGE > 0);
+        assert!(HIT_DAMAGE <= MAX_HEALTH, "Single hit shouldn't exceed max health");
+    }
+
+    #[test]
+    fn constants_enemy_limits() {
+        assert!(MAX_ENEMIES > 0);
+        assert!(MAX_BULLETS > 0);
+        assert!(MAX_PARTICLES > 0);
+        assert!(ENEMY_MAX_AMMO > 0);
+        assert!(TANK_MAX_AMMO > 0);
+    }
+
+    #[test]
+    fn constants_camera() {
+        assert!(CAM_DEAD_ZONE_X > 0.0);
+        assert!(CAM_SMOOTH > 0.0);
+    }
+
+    #[test]
+    fn constants_enemy_speeds_ordered() {
+        // Scouts should be fastest, tanks slowest
+        assert!(SCOUT_SPEED_MIN > TANK_SPEED_MIN);
+        assert!(SCOUT_SPEED_MAX > TANK_SPEED_MAX);
+        assert!(FLANKER_SPEED_MIN > GRUNT_SPEED_MIN);
+    }
+
+    #[test]
+    fn constants_enemy_hp() {
+        assert!(TANK_HP > GRUNT_HP, "Tanks should have more HP than grunts");
+        assert!(GRUNT_HP >= SCOUT_HP, "Grunts should have at least as much HP as scouts");
+        assert!(SCOUT_HP > 0);
+    }
+
+    #[test]
+    fn constants_enemy_types_positive() {
+        assert!(SCOUT_SPEED_MIN > 0.0);
+        assert!(SCOUT_SPEED_MAX > SCOUT_SPEED_MIN);
+        assert!(GRUNT_SPEED_MIN > 0.0);
+        assert!(GRUNT_SPEED_MAX > GRUNT_SPEED_MIN);
+        assert!(TANK_SPEED_MIN > 0.0);
+        assert!(TANK_SPEED_MAX > TANK_SPEED_MIN);
+        assert!(FLANKER_SPEED_MIN > 0.0);
+        assert!(FLANKER_SPEED_MAX > FLANKER_SPEED_MIN);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // ── Particle Color Tests ────────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn particle_color_returns_valid_colors() {
+        for idx in 0..7 {
+            let c = particle_color(idx);
+            assert!(c.r >= 0.0 && c.r <= 1.0, "Red out of range for idx={}: {}", idx, c.r);
+            assert!(c.g >= 0.0 && c.g <= 1.0, "Green out of range for idx={}: {}", idx, c.g);
+            assert!(c.b >= 0.0 && c.b <= 1.0, "Blue out of range for idx={}: {}", idx, c.b);
+            assert!((c.a - 1.0).abs() < 0.01, "Alpha should be 1.0 for idx={}: {}", idx, c.a);
+        }
+    }
+
+    #[test]
+    fn particle_color_wraps_at_7() {
+        // particle_color uses idx % 7, so idx 0 and 7 should give the same result
+        let c0 = particle_color(0);
+        let c7 = particle_color(7);
+        assert!((c0.r - c7.r).abs() < 0.01);
+        assert!((c0.g - c7.g).abs() < 0.01);
+        assert!((c0.b - c7.b).abs() < 0.01);
+    }
+
+    #[test]
+    fn particle_color_all_unique() {
+        let mut colors = Vec::new();
+        for idx in 0..7 {
+            let c = particle_color(idx);
+            colors.push((c.r, c.g, c.b));
+        }
+        // Check that all 7 colors are distinct
+        for i in 0..7 {
+            for j in (i + 1)..7 {
+                let (r1, g1, b1) = colors[i];
+                let (r2, g2, b2) = colors[j];
+                assert!(
+                    (r1 - r2).abs() > 0.01 || (g1 - g2).abs() > 0.01 || (b1 - b2).abs() > 0.01,
+                    "Colors {} and {} should be different: ({},{},{}) vs ({},{},{})",
+                    i, j, r1, g1, b1, r2, g2, b2
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn particle_color_high_indices() {
+        // Should work with large indices due to modulo
+        let c = particle_color(100);
+        assert!(c.r >= 0.0 && c.r <= 1.0);
+        let c = particle_color(255);
+        assert!(c.r >= 0.0 && c.r <= 1.0);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // ── Init World Tests ────────────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════════════════
+
+    fn setup_test_world() -> World {
+        let mut world = World::new();
+        world.insert_resource(GameStateRes::default());
+        world.insert_resource(ScoreRes::default());
+        world.insert_resource(LivesRes::default());
+        world.insert_resource(CameraRes::default());
+        world.insert_resource(SpawnRes::default());
+        world.insert_resource(InputState::default());
+        world.insert_resource(ViewportRes::default());
+        world.insert_resource(DifficultyRes::default());
+        world.insert_resource(SettingsRes::default());
+        world.insert_resource(KillFeedRes::default());
+        world.insert_resource(GameModeRes::default());
+        world.insert_resource(MapRes::default());
+        world
+    }
+
+    fn spawn_test_player(world: &mut World) -> opengame_engine::ecs::Entity {
+        world.spawn()
+            .with(components::Player {
+                facing_right: true, invincible: 0.0, flash: 0.0, shoot_timer: 0.0,
+                on_ground: true, sliding: false, slide_timer: 0.0, aim_angle: 0.0,
+                ammo: 30, max_ammo: 30, reloading: false, reload_timer: 0.0,
+                footstep_timer: 0.0, health: 100, max_health: 100, armor: 50, max_armor: 50,
+            })
+            .with(Transform2D::new(Vec2::new(100.0, GROUND_Y - PLAYER_SIZE)))
+            .with(components::Velocity { x: 0.0, y: 0.0, gravity_scale: 1.0 })
+            .build()
+    }
+
+    #[test]
+    fn world_setup_has_all_resources() {
+        let world = setup_test_world();
+        assert!(world.get_resource::<GameStateRes>().is_some());
+        assert!(world.get_resource::<ScoreRes>().is_some());
+        assert!(world.get_resource::<LivesRes>().is_some());
+        assert!(world.get_resource::<CameraRes>().is_some());
+        assert!(world.get_resource::<SpawnRes>().is_some());
+        assert!(world.get_resource::<InputState>().is_some());
+        assert!(world.get_resource::<ViewportRes>().is_some());
+        assert!(world.get_resource::<DifficultyRes>().is_some());
+        assert!(world.get_resource::<SettingsRes>().is_some());
+        assert!(world.get_resource::<KillFeedRes>().is_some());
+        assert!(world.get_resource::<GameModeRes>().is_some());
+        assert!(world.get_resource::<MapRes>().is_some());
+    }
+
+    #[test]
+    fn player_spawn_and_query() {
+        let mut world = setup_test_world();
+        let e = spawn_test_player(&mut world);
+
+        let query = QuerySingle::<components::Player>::new(&world);
+        assert!(query.is_some());
+        let q = query.unwrap();
+        assert_eq!(q.len(), 1);
+
+        let p = q.get(e);
+        assert!(p.is_some());
+        assert_eq!(p.unwrap().health, 100);
+    }
 }
