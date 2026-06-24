@@ -374,7 +374,7 @@ fn run_collision_detection(world: &mut World) {
             // Add kill feed message
             let kill_feed = world.get_resource_mut::<KillFeedRes>().unwrap();
             kill_feed.new_entries.push(KillFeedEntry {
-                message: "Facility Guard has eliminated an Alpha-class Chaos Insurgency operative.".to_string(),
+                message: "设施警卫已消灭一名混沌分裂者阿尔法级特工。".to_string(),
                 timer: 4.0,
             });
 
