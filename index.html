@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-    <title>SCP: Containment</title>
+    <title>SCP：收容协议</title>
     <style>
         /* ── Theme ──────────────────────────────────────────────────────── */
         :root {
@@ -26,8 +26,8 @@
             --radius-md: 10px;
             --radius-lg: 16px;
             --radius-pill: 100px;
-            --font-ui: 'Segoe UI', 'Inter', 'Helvetica Neue', Arial, sans-serif;
-            --font-mono: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+            --font-ui: 'Microsoft YaHei', 'PingFang SC', 'Segoe UI', 'Inter', 'Helvetica Neue', Arial, sans-serif;
+            --font-mono: 'SF Mono', 'Cascadia Code', 'Consolas', 'Microsoft YaHei', monospace;
         }
 
         /* ── Reset ──────────────────────────────────────────────────────── */
@@ -51,12 +51,12 @@
         .start-screen { background: rgba(4, 6, 16, 0.7); backdrop-filter: blur(4px); }
         .start-card { display: flex; flex-direction: column; align-items: center; padding: 3rem 3.5rem; min-width: 320px; max-width: 420px; }
         .game-title { font-size: clamp(1.8rem, 5vw, 3rem); font-weight: 800; letter-spacing: 0.2em; color: var(--color-primary); text-shadow: 0 0 30px rgba(77, 184, 255, 0.4), 0 0 80px rgba(77, 184, 255, 0.1); text-transform: uppercase; line-height: 1.1; }
-        .game-subtitle { margin-top: 0.6rem; font-size: clamp(0.6rem, 1.5vw, 0.8rem); font-weight: 400; letter-spacing: 0.35em; color: var(--color-accent); text-shadow: 0 0 16px rgba(255, 107, 74, 0.35); text-transform: uppercase; }
+        .game-subtitle { margin-top: 0.6rem; font-size: clamp(0.6rem, 1.5vw, 0.8rem); font-weight: 400; letter-spacing: 0.15em; color: var(--color-accent); text-shadow: 0 0 16px rgba(255, 107, 74, 0.35); text-transform: uppercase; }
         .divider { width: 80%; height: 1px; margin: 1.8rem 0; background: linear-gradient(90deg, transparent, var(--color-primary-dim), transparent); }
         .start-buttons { display: flex; gap: 0.8rem; align-items: center; }
 
         /* ── Buttons ────────────────────────────────────────────────────── */
-        .btn { padding: 0.75em 2.8em; font-family: var(--font-ui); font-size: clamp(0.75rem, 1.6vw, 0.95rem); font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--color-primary); background: transparent; border: 1.5px solid var(--color-primary-dim); border-radius: var(--radius-pill); outline: none; transition: all 0.25s ease; box-shadow: var(--glow-primary); }
+        .btn { padding: 0.75em 2.8em; font-family: var(--font-ui); font-size: clamp(0.75rem, 1.6vw, 0.95rem); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-primary); background: transparent; border: 1.5px solid var(--color-primary-dim); border-radius: var(--radius-pill); outline: none; transition: all 0.25s ease; box-shadow: var(--glow-primary); }
         .btn:hover { background: rgba(77, 184, 255, 0.1); border-color: var(--color-primary); box-shadow: 0 0 30px rgba(77, 184, 255, 0.4), 0 0 80px rgba(77, 184, 255, 0.12); transform: translateY(-1px); }
         .btn:active { transform: translateY(0); }
         .btn-danger { color: var(--color-danger); border-color: var(--color-danger-dim); box-shadow: var(--glow-danger); }
@@ -66,7 +66,7 @@
 
         /* ── Controls Grid ──────────────────────────────────────────────── */
         .controls-panel { margin-top: 2rem; padding: 1rem 1.4rem; background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.04); border-radius: var(--radius-md); width: 100%; }
-        .controls-title { font-size: 0.6rem; font-weight: 600; letter-spacing: 0.25em; color: var(--color-text-muted); text-transform: uppercase; margin-bottom: 0.7rem; text-align: center; }
+        .controls-title { font-size: 0.6rem; font-weight: 600; letter-spacing: 0.15em; color: var(--color-text-muted); text-transform: uppercase; margin-bottom: 0.7rem; text-align: center; }
         .controls-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.4rem 0.9rem; align-items: center; }
         .keys { display: flex; gap: 0.3rem; justify-content: flex-end; }
         kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 1.8em; padding: 0.15em 0.5em; font-family: var(--font-mono); font-size: 0.7rem; font-weight: 600; color: rgba(200, 215, 240, 0.8); background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; line-height: 1.4; }
@@ -91,7 +91,7 @@
         .hud-score-panel { text-align: right; padding: 8px 14px; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: var(--radius-sm); backdrop-filter: blur(8px); }
         .hud-settings-btn { pointer-events: auto; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: var(--radius-sm); backdrop-filter: blur(8px); color: var(--color-text-muted); font-size: 1rem; cursor: none; transition: all 0.2s ease; }
         .hud-settings-btn:hover { color: var(--color-primary); border-color: rgba(77, 184, 255, 0.3); background: rgba(77, 184, 255, 0.08); }
-        .hud-score-label { font-size: 0.55rem; font-weight: 600; letter-spacing: 0.2em; color: var(--color-text-muted); text-transform: uppercase; }
+        .hud-score-label { font-size: 0.55rem; font-weight: 600; letter-spacing: 0.1em; color: var(--color-text-muted); text-transform: uppercase; }
         .hud-score { font-family: var(--font-mono); font-size: clamp(1rem, 2.5vw, 1.4rem); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--color-success); text-shadow: 0 0 12px rgba(80, 250, 123, 0.3); line-height: 1.2; }
         .hud-high-score { font-family: var(--font-mono); font-size: 0.6rem; font-variant-numeric: tabular-nums; color: var(--color-gold); opacity: 0.6; margin-top: 2px; }
         .hud-center { position: absolute; left: 50%; transform: translateX(-50%); }
@@ -135,7 +135,7 @@
         /* ── Pause Screen ───────────────────────────────────────────────── */
         .pause-screen { background: rgba(4, 6, 16, 0.65); backdrop-filter: blur(6px); }
         .pause-card { display: flex; flex-direction: column; align-items: center; padding: 2.5rem 3.5rem; min-width: 300px; max-width: 400px; }
-        .pause-title { font-size: clamp(1.6rem, 4vw, 2.4rem); font-weight: 800; letter-spacing: 0.2em; color: var(--color-primary); text-shadow: 0 0 30px rgba(77, 184, 255, 0.3); text-transform: uppercase; margin-bottom: 0.5rem; }
+        .pause-title { font-size: clamp(1.6rem, 4vw, 2.4rem); font-weight: 800; letter-spacing: 0.12em; color: var(--color-primary); text-shadow: 0 0 30px rgba(77, 184, 255, 0.3); text-transform: uppercase; margin-bottom: 0.5rem; }
         .pause-subtitle { font-size: 0.7rem; color: var(--color-text-muted); letter-spacing: 0.15em; margin-bottom: 2rem; }
         .pause-buttons { display: flex; flex-direction: column; gap: 0.8rem; width: 100%; align-items: center; }
 
@@ -195,7 +195,7 @@
         .gameover-title { font-size: clamp(1.6rem, 4.5vw, 2.6rem); font-weight: 800; letter-spacing: 0.15em; color: var(--color-danger); text-shadow: 0 0 30px rgba(255, 77, 77, 0.4), 0 0 80px rgba(255, 77, 77, 0.1); text-transform: uppercase; animation: gameoverIn 0.5s ease both; }
         @keyframes gameoverIn { from { opacity: 0; transform: scale(0.9) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
         .gameover-score-block { margin-top: 1.6rem; text-align: center; animation: fadeUp 0.5s ease 0.2s both; }
-        .gameover-score-label { font-size: 0.6rem; font-weight: 600; letter-spacing: 0.25em; color: var(--color-text-muted); text-transform: uppercase; }
+        .gameover-score-label { font-size: 0.6rem; font-weight: 600; letter-spacing: 0.15em; color: var(--color-text-muted); text-transform: uppercase; }
         .gameover-score { font-family: var(--font-mono); font-size: clamp(2rem, 5vw, 3rem); font-weight: 800; font-variant-numeric: tabular-nums; color: var(--color-gold); text-shadow: 0 0 20px rgba(255, 215, 64, 0.35); line-height: 1.2; }
         .gameover-high { margin-top: 0.5rem; font-size: 0.72rem; color: var(--color-gold); opacity: 0.55; animation: fadeUp 0.5s ease 0.35s both; }
         .gameover-high.new-record { opacity: 1; font-weight: 700; letter-spacing: 0.1em; text-shadow: 0 0 12px rgba(255, 215, 64, 0.3); }
@@ -458,11 +458,11 @@
 
         function renderSettingsPanel() {
             var diff = parseInt(settings.difficulty) || 1;
-            var diffNames = ['Easy', 'Normal', 'Hard'];
+            var diffNames = ['简单', '普通', '困难'];
             var shakeOn = settings.screen_shake !== false;
             var fpsOn = settings.show_fps === true;
             var aimOn = settings.aim_assist === true;
-            var colors = [[0,1,0.53,'Green'],[0,0.73,1,'Cyan'],[1,0.3,0.3,'Red'],[1,1,1,'White'],[1,0.85,0,'Gold']];
+            var colors = [[0,1,0.53,'绿色'],[0,0.73,1,'青色'],[1,0.3,0.3,'红色'],[1,1,1,'白色'],[1,0.85,0,'金色']];
             var curColor = String(settings.crosshair_color || '0,1,0.53');
             var sz = parseFloat(settings.crosshair_size) || 1.0;
 
@@ -476,56 +476,56 @@
 
             return '<div class="screen settings-screen">' +
                 '<div class="settings-card glass">' +
-                '<div class="settings-header"><span class="settings-title">Settings</span><button class="settings-close" id="settings-close-btn">&times;</button></div>' +
+                '<div class="settings-header"><span class="settings-title">设置</span><button class="settings-close" id="settings-close-btn">&times;</button></div>' +
                 '<div class="settings-tabs">' +
-                '<button class="settings-tab active" data-tab="audio">Audio</button>' +
-                '<button class="settings-tab" data-tab="display">Display</button>' +
-                '<button class="settings-tab" data-tab="gameplay">Game</button>' +
-                '<button class="settings-tab" data-tab="crosshair">Aim</button>' +
-                '<button class="settings-tab" data-tab="controls">Keys</button>' +
+                '<button class="settings-tab active" data-tab="audio">音频</button>' +
+                '<button class="settings-tab" data-tab="display">显示</button>' +
+                '<button class="settings-tab" data-tab="gameplay">游戏</button>' +
+                '<button class="settings-tab" data-tab="crosshair">瞄准</button>' +
+                '<button class="settings-tab" data-tab="controls">按键</button>' +
                 '</div>' +
                 '<div class="settings-body">' +
 
                 // Audio tab
                 '<div class="tab-content active" id="tab-audio">' +
-                '<div class="setting-row"><div><div class="setting-label">Master Volume</div></div><div class="range-group"><input type="range" min="0" max="100" value="' + Math.round((settings.master_volume||0.8)*100) + '" data-key="master_volume"><span class="range-value">' + Math.round((settings.master_volume||0.8)*100) + '%</span></div></div>' +
-                '<div class="setting-row"><div><div class="setting-label">SFX Volume</div></div><div class="range-group"><input type="range" min="0" max="100" value="' + Math.round((settings.sfx_volume||0.8)*100) + '" data-key="sfx_volume"><span class="range-value">' + Math.round((settings.sfx_volume||0.8)*100) + '%</span></div></div>' +
-                '<div class="setting-row"><div><div class="setting-label">Music Volume</div></div><div class="range-group"><input type="range" min="0" max="100" value="' + Math.round((settings.music_volume||0.6)*100) + '" data-key="music_volume"><span class="range-value">' + Math.round((settings.music_volume||0.6)*100) + '%</span></div></div>' +
+                '<div class="setting-row"><div><div class="setting-label">主音量</div></div><div class="range-group"><input type="range" min="0" max="100" value="' + Math.round((settings.master_volume||0.8)*100) + '" data-key="master_volume"><span class="range-value">' + Math.round((settings.master_volume||0.8)*100) + '%</span></div></div>' +
+                '<div class="setting-row"><div><div class="setting-label">音效音量</div></div><div class="range-group"><input type="range" min="0" max="100" value="' + Math.round((settings.sfx_volume||0.8)*100) + '" data-key="sfx_volume"><span class="range-value">' + Math.round((settings.sfx_volume||0.8)*100) + '%</span></div></div>' +
+                '<div class="setting-row"><div><div class="setting-label">音乐音量</div></div><div class="range-group"><input type="range" min="0" max="100" value="' + Math.round((settings.music_volume||0.6)*100) + '" data-key="music_volume"><span class="range-value">' + Math.round((settings.music_volume||0.6)*100) + '%</span></div></div>' +
                 '</div>' +
 
                 // Display tab
                 '<div class="tab-content" id="tab-display">' +
-                '<div class="setting-row"><div><div class="setting-label">Screen Shake</div><div class="setting-desc">Camera shake on hits</div></div><div class="toggle' + (shakeOn ? ' on' : '') + '" data-key="screen_shake"></div></div>' +
-                '<div class="setting-row"><div><div class="setting-label">Show FPS</div><div class="setting-desc">Display frame rate</div></div><div class="toggle' + (fpsOn ? ' on' : '') + '" data-key="show_fps"></div></div>' +
+                '<div class="setting-row"><div><div class="setting-label">画面震动</div><div class="setting-desc">受击时镜头震动</div></div><div class="toggle' + (shakeOn ? ' on' : '') + '" data-key="screen_shake"></div></div>' +
+                '<div class="setting-row"><div><div class="setting-label">显示帧率</div><div class="setting-desc">显示每秒帧数 (FPS)</div></div><div class="toggle' + (fpsOn ? ' on' : '') + '" data-key="show_fps"></div></div>' +
                 '</div>' +
 
                 // Gameplay tab
                 '<div class="tab-content" id="tab-gameplay">' +
-                '<div class="setting-row"><div><div class="setting-label">Difficulty</div><div class="setting-desc">Enemy accuracy & aggression</div></div><div class="diff-group">' +
-                '<button class="diff-btn' + (diff===0?' active':'') + '" data-diff="0">Easy</button>' +
-                '<button class="diff-btn' + (diff===1?' active':'') + '" data-diff="1">Normal</button>' +
-                '<button class="diff-btn' + (diff===2?' active':'') + '" data-diff="2">Hard</button>' +
+                '<div class="setting-row"><div><div class="setting-label">难度</div><div class="setting-desc">敌人精准度与攻击性</div></div><div class="diff-group">' +
+                '<button class="diff-btn' + (diff===0?' active':'') + '" data-diff="0">简单</button>' +
+                '<button class="diff-btn' + (diff===1?' active':'') + '" data-diff="1">普通</button>' +
+                '<button class="diff-btn' + (diff===2?' active':'') + '" data-diff="2">困难</button>' +
                 '</div></div>' +
-                '<div class="setting-row"><div><div class="setting-label">Aim Assist</div><div class="setting-desc">Subtle bullet magnetism</div></div><div class="toggle' + (aimOn ? ' on' : '') + '" data-key="aim_assist"></div></div>' +
+                '<div class="setting-row"><div><div class="setting-label">瞄准辅助</div><div class="setting-desc">轻微子弹吸附效果</div></div><div class="toggle' + (aimOn ? ' on' : '') + '" data-key="aim_assist"></div></div>' +
                 '</div>' +
 
                 // Crosshair tab
                 '<div class="tab-content" id="tab-crosshair">' +
-                '<div class="setting-row"><div><div class="setting-label">Color</div></div><div class="color-presets">' + colorSwatches + '</div></div>' +
-                '<div class="setting-row"><div><div class="setting-label">Size</div></div><div class="range-group"><input type="range" min="50" max="200" value="' + Math.round(sz*100) + '" data-key="crosshair_size"><span class="range-value">' + sz.toFixed(1) + 'x</span></div></div>' +
+                '<div class="setting-row"><div><div class="setting-label">颜色</div></div><div class="color-presets">' + colorSwatches + '</div></div>' +
+                '<div class="setting-row"><div><div class="setting-label">大小</div></div><div class="range-group"><input type="range" min="50" max="200" value="' + Math.round(sz*100) + '" data-key="crosshair_size"><span class="range-value">' + sz.toFixed(1) + 'x</span></div></div>' +
                 '</div>' +
 
                 // Controls tab
                 '<div class="tab-content" id="tab-controls">' +
                 '<div class="controls-panel" style="margin-top:0">' +
                 '<div class="controls-grid">' +
-                '<div class="keys"><kbd>A</kbd><kbd>D</kbd></div><span class="control-label">Move</span>' +
-                '<div class="keys"><kbd>W</kbd><kbd>Space</kbd></div><span class="control-label">Jump</span>' +
-                '<div class="keys"><kbd>S</kbd></div><span class="control-label">Slide</span>' +
-                '<div class="keys"><kbd>Mouse</kbd></div><span class="control-label">Aim</span>' +
-                '<div class="keys"><kbd>LMB</kbd><kbd>J</kbd></div><span class="control-label">Fire</span>' +
-                '<div class="keys"><kbd>R</kbd></div><span class="control-label">Reload</span>' +
-                '<div class="keys"><kbd>Esc</kbd></div><span class="control-label">Pause</span>' +
+                '<div class="keys"><kbd>A</kbd><kbd>D</kbd></div><span class="control-label">移动</span>' +
+                '<div class="keys"><kbd>W</kbd><kbd>空格</kbd></div><span class="control-label">跳跃</span>' +
+                '<div class="keys"><kbd>S</kbd></div><span class="control-label">滑铲</span>' +
+                '<div class="keys"><kbd>鼠标</kbd></div><span class="control-label">瞄准</span>' +
+                '<div class="keys"><kbd>左键</kbd><kbd>J</kbd></div><span class="control-label">射击</span>' +
+                '<div class="keys"><kbd>R</kbd></div><span class="control-label">装填</span>' +
+                '<div class="keys"><kbd>Esc</kbd></div><span class="control-label">暂停</span>' +
                 '</div></div>' +
                 '</div>' +
 
@@ -540,60 +540,60 @@
                 html = '<div class="screen start-screen">' +
                     '<div class="start-card glass">' +
                     '<div class="game-title">SCP</div>' +
-                    '<div class="game-subtitle">Containment Protocol</div>' +
+                    '<div class="game-subtitle">收容协议</div>' +
                     '<div class="divider"></div>' +
                     '<div class="start-buttons">' +
-                    '<div class="btn">Start Mission</div>' +
-                    '<div class="btn btn-icon" id="settings-gear-btn" title="Settings">&#9881;</div>' +
+                    '<div class="btn">开始任务</div>' +
+                    '<div class="btn btn-icon" id="settings-gear-btn" title="设置">&#9881;</div>' +
                     '</div>' +
                     '<div class="controls-panel">' +
-                    '<div class="controls-title">Controls</div>' +
+                    '<div class="controls-title">操作说明</div>' +
                     '<div class="controls-grid">' +
-                    '<div class="keys"><kbd>A</kbd><kbd>D</kbd></div><span class="control-label">Move</span>' +
-                    '<div class="keys"><kbd>W</kbd><kbd>Space</kbd></div><span class="control-label">Jump</span>' +
-                    '<div class="keys"><kbd>S</kbd></div><span class="control-label">Slide</span>' +
-                    '<div class="keys"><kbd>Mouse</kbd></div><span class="control-label">Aim</span>' +
-                    '<div class="keys"><kbd>LMB</kbd><kbd>J</kbd></div><span class="control-label">Fire</span>' +
-                    '<div class="keys"><kbd>R</kbd></div><span class="control-label">Reload</span>' +
+                    '<div class="keys"><kbd>A</kbd><kbd>D</kbd></div><span class="control-label">移动</span>' +
+                    '<div class="keys"><kbd>W</kbd><kbd>空格</kbd></div><span class="control-label">跳跃</span>' +
+                    '<div class="keys"><kbd>S</kbd></div><span class="control-label">滑铲</span>' +
+                    '<div class="keys"><kbd>鼠标</kbd></div><span class="control-label">瞄准</span>' +
+                    '<div class="keys"><kbd>左键</kbd><kbd>J</kbd></div><span class="control-label">射击</span>' +
+                    '<div class="keys"><kbd>R</kbd></div><span class="control-label">装填</span>' +
                     '</div></div></div></div>';
             } else if (state === 1) {
                 var healthPct = maxHealth > 0 ? Math.round(health / maxHealth * 100) : 0;
                 var armorPct = maxArmor > 0 ? Math.round(armor / maxArmor * 100) : 0;
                 var ammoClass = reloading ? 'ammo-reloading' : (ammo <= 5 ? 'ammo-low' : '');
-                var ammoText = reloading ? 'RELOADING...' : ammo + ' / ' + maxAmmo;
+                var ammoText = reloading ? '装填中...' : ammo + ' / ' + maxAmmo;
                 html = '<div class="screen hud-overlay">' +
                     '<div class="hud-bar">' +
                     '<div class="hud-vitals">' +
-                    '<div class="vital-bar"><span class="vital-label health">HP</span><div class="vital-track"><div class="vital-fill health" id="hud-health-fill" style="width:' + healthPct + '%"></div></div><span class="vital-value health" id="hud-health-val">' + health + '</span></div>' +
-                    '<div class="vital-bar"><span class="vital-label armor">ARM</span><div class="vital-track"><div class="vital-fill armor" id="hud-armor-fill" style="width:' + armorPct + '%"></div></div><span class="vital-value armor" id="hud-armor-val">' + armor + '</span></div>' +
+                    '<div class="vital-bar"><span class="vital-label health">血量</span><div class="vital-track"><div class="vital-fill health" id="hud-health-fill" style="width:' + healthPct + '%"></div></div><span class="vital-value health" id="hud-health-val">' + health + '</span></div>' +
+                    '<div class="vital-bar"><span class="vital-label armor">护甲</span><div class="vital-track"><div class="vital-fill armor" id="hud-armor-fill" style="width:' + armorPct + '%"></div></div><span class="vital-value armor" id="hud-armor-val">' + armor + '</span></div>' +
                     '</div>' +
                     '<div class="hud-center"><div class="hud-ammo ' + ammoClass + '" id="hud-ammo-wrap"><div class="ammo-icon">&#x2B21;</div><div class="ammo-text" id="hud-ammo-text">' + ammoText + '</div></div></div>' +
                     '<div class="hud-right">' +
                     '<div class="hud-score-panel">' +
-                    '<div class="hud-score-label">Score</div>' +
+                    '<div class="hud-score-label">分数</div>' +
                     '<div class="hud-score" id="hud-score-val">' + score + '</div>' +
-                    '<div class="hud-high-score" id="hud-high-val" style="' + (high > 0 ? '' : 'display:none') + '">HI ' + high + '</div>' +
+                    '<div class="hud-high-score" id="hud-high-val" style="' + (high > 0 ? '' : 'display:none') + '">最高 ' + high + '</div>' +
                     '</div>' +
-                    '<div class="hud-settings-btn" id="hud-settings-btn" title="Settings">&#9881;</div>' +
+                    '<div class="hud-settings-btn" id="hud-settings-btn" title="设置">&#9881;</div>' +
                     '</div></div></div>';
             } else if (state === 3) {
                 html = '<div class="screen pause-screen">' +
                     '<div class="pause-card glass">' +
-                    '<div class="pause-title">Paused</div>' +
-                    '<div class="pause-subtitle">Press <kbd>Esc</kbd> to resume</div>' +
+                    '<div class="pause-title">已暂停</div>' +
+                    '<div class="pause-subtitle">按 <kbd>Esc</kbd> 继续游戏</div>' +
                     '<div class="pause-buttons">' +
-                    '<div class="btn" id="resume-btn">Resume</div>' +
-                    '<div class="btn btn-sm" id="pause-settings-btn">Settings</div>' +
+                    '<div class="btn" id="resume-btn">继续</div>' +
+                    '<div class="btn btn-sm" id="pause-settings-btn">设置</div>' +
                     '</div></div></div>';
             } else if (state === 2) {
                 var isNew = score >= high && score > 0;
                 html = '<div class="screen gameover-screen">' +
                     '<div class="gameover-card glass">' +
-                    '<div class="gameover-title">Mission Failed</div>' +
-                    '<div class="gameover-score-block"><div class="gameover-score-label">Final Score</div><div class="gameover-score">' + score + '</div></div>' +
-                    (isNew ? '<div class="gameover-high new-record">&#9733; New High Score &#9733;</div>' :
-                     high > 0 ? '<div class="gameover-high">Best: ' + high + '</div>' : '') +
-                    '<div class="gameover-replay"><div class="btn btn-danger">Replay</div></div>' +
+                    '<div class="gameover-title">任务失败</div>' +
+                    '<div class="gameover-score-block"><div class="gameover-score-label">最终得分</div><div class="gameover-score">' + score + '</div></div>' +
+                    (isNew ? '<div class="gameover-high new-record">&#9733; 创造新纪录 &#9733;</div>' :
+                     high > 0 ? '<div class="gameover-high">最佳：' + high + '</div>' : '') +
+                    '<div class="gameover-replay"><div class="btn btn-danger">重新挑战</div></div>' +
                     '</div></div>';
             }
             overlay.innerHTML = html;
@@ -809,7 +809,7 @@
             if (scoreEl && score !== prevScore) { scoreEl.textContent = score; prevScore = score; }
 
             var highEl = document.getElementById('hud-high-val');
-            if (highEl && high !== prevHigh) { highEl.textContent = 'HI ' + high; highEl.style.display = high > 0 ? '' : 'none'; prevHigh = high; }
+            if (highEl && high !== prevHigh) { highEl.textContent = '最高 ' + high; highEl.style.display = high > 0 ? '' : 'none'; prevHigh = high; }
 
             // Health bar
             if (health !== prevHealth || maxHealth !== prevMaxHealth) {
@@ -843,7 +843,7 @@
                 var ammoText = document.getElementById('hud-ammo-text');
                 if (ammoWrap && ammoText) {
                     ammoWrap.className = 'hud-ammo' + (reloading ? ' ammo-reloading' : (ammo <= 5 ? ' ammo-low' : ''));
-                    ammoText.textContent = reloading ? 'RELOADING...' : ammo + ' / ' + maxAmmo;
+                    ammoText.textContent = reloading ? '装填中...' : ammo + ' / ' + maxAmmo;
                 }
                 prevAmmo = ammo;
                 prevMaxAmmo = maxAmmo;
